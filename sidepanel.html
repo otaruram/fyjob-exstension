@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FYJOB Scanner</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+  <!-- ═══ AUTH SCREEN ═══ -->
+  <div id="auth-screen" class="screen">
+    <div class="auth-container">
+      <div class="logo-area">
+        <div class="logo-icon">
+          <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round">
+            <circle cx="50" cy="25" r="12"/>
+            <path d="M50 37v30M32 50h36M34 85l16-18 16 18"/>
+          </svg>
+        </div>
+        <h1>FY<span class="accent">JOB</span></h1>
+        <p class="tagline">AI Job Match Scanner</p>
+      </div>
+      <p class="auth-desc">Login through the FYJOB Dashboard to sync your session here automatically.</p>
+      <button id="btn-login" class="btn btn-primary btn-full">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+        Open Dashboard & Login
+      </button>
+      <p class="auth-hint">Already logged in? <button id="btn-retry" class="link-btn">Retry Sync</button></p>
+    </div>
+  </div>
+
+  <!-- ═══ MAIN SCREEN ═══ -->
+  <div id="main-screen" class="screen hidden">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <span class="brand">FY<span class="accent">JOB</span></span>
+        <span class="version-badge">EXT v1.0</span>
+      </div>
+      <div class="header-right">
+        <div class="credit-pill" id="credit-pill">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10"/></svg>
+          <span id="credit-count">—</span>
+        </div>
+        <button id="btn-logout" class="icon-btn" title="Logout">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Status Bar -->
+    <div class="status-bar" id="status-bar">
+      <div class="status-dot"></div>
+      <span id="status-text">Detecting job page...</span>
+    </div>
+
+    <!-- Job Detection Card -->
+    <div id="job-card" class="card job-card hidden">
+      <div class="card-label">DETECTED JOB</div>
+      <h2 id="job-title" class="job-title">—</h2>
+      <div class="job-meta">
+        <span id="job-company" class="job-company">—</span>
+        <span class="meta-dot">•</span>
+        <span id="job-portal" class="job-portal">—</span>
+      </div>
+      <div class="job-desc-preview" id="job-desc-preview"></div>
+    </div>
+
+    <!-- Scan Button -->
+    <button id="btn-scan" class="btn btn-hero btn-full" disabled>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      Quick Match Analysis
+      <span class="credit-cost">1 Credit</span>
+    </button>
+
+    <!-- Loading State -->
+    <div id="scan-loading" class="card loading-card hidden">
+      <div class="loader-ring"></div>
+      <p class="loading-text">Ujang sedang menganalisis...</p>
+      <p class="loading-sub">Matching CV vs Job Requirements</p>
+    </div>
+
+    <!-- Results Section -->
+    <div id="results-section" class="hidden">
+      <!-- Score Gauge -->
+      <div class="card score-card">
+        <div class="score-ring-container">
+          <svg class="score-ring" viewBox="0 0 120 120">
+            <circle class="score-ring-bg" cx="60" cy="60" r="50"/>
+            <circle class="score-ring-fill" id="score-ring-fill" cx="60" cy="60" r="50"
+              stroke-dasharray="314" stroke-dashoffset="314"/>
+          </svg>
+          <div class="score-value">
+            <span id="score-number">0</span>
+            <span class="score-percent">%</span>
+          </div>
+        </div>
+        <div class="score-label" id="score-label">Calculating...</div>
+      </div>
+
+      <!-- Missing Skills -->
+      <div class="card">
+        <div class="card-label">SKILL GAPS</div>
+        <div class="tags-container" id="skill-gaps"></div>
+      </div>
+
+      <!-- Insights -->
+      <div class="card">
+        <div class="card-label">UJANG'S VERDICT</div>
+        <div class="insight-text" id="insight-text"></div>
+      </div>
+
+      <!-- Quick Chat -->
+      <div class="card chat-card">
+        <div class="card-label">ASK UJANG</div>
+        <div class="chat-messages" id="chat-messages"></div>
+        <div class="chat-input-row">
+          <input type="text" id="chat-input" placeholder="Tanya Ujang soal job ini..." />
+          <button id="btn-send" class="btn btn-sm btn-primary">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Dashboard Link -->
+      <a id="btn-dashboard" class="btn btn-outline btn-full" href="#" target="_blank">
+        Open Full Dashboard →
+      </a>
+    </div>
+
+    <!-- History -->
+    <div class="card" id="history-card">
+      <div class="card-label">RECENT SCANS</div>
+      <div id="history-list" class="history-list"></div>
+    </div>
+  </div>
+
+  <script src="lib/api.js"></script>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

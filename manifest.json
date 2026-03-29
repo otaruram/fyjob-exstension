@@ -1,0 +1,79 @@
+{
+  "manifest_version": 3,
+  "name": "FYJOB — AI Job Match Scanner",
+  "version": "1.0.0",
+  "description": "Scan any job posting with brutal FAANG-level AI analysis. Know your real match score before you apply.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "sidePanel",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://*.linkedin.com/*",
+    "https://*.indeed.com/*",
+    "https://*.jobstreet.co.id/*",
+    "https://*.kalibrr.com/*",
+    "https://*.glints.com/*",
+    "https://*.karir.com/*",
+    "https://*.jobs.lever.co/*",
+    "https://*.greenhouse.io/*",
+    "https://*.workday.com/*",
+    "https://*.azurewebsites.net/*"
+  ],
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "Open FYJOB Scanner"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "sidebar_action": {
+    "default_panel": "sidepanel.html",
+    "default_title": "FYJOB Scanner",
+    "default_icon": "icons/icon16.png"
+  },
+  "background": {
+    "scripts": ["background.js"],
+    "type": "module"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "fypodku@otaruram.dev",
+      "strict_min_version": "109.0"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.linkedin.com/*",
+        "https://*.indeed.com/*",
+        "https://*.jobstreet.co.id/*",
+        "https://*.kalibrr.com/*",
+        "https://*.glints.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://localhost/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
