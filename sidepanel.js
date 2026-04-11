@@ -6,7 +6,7 @@
 const ui = window.SidepanelUI;
 
 // ─── Dashboard URL ───
-const DEFAULT_DASHBOARD_URL = "http://localhost:3000";
+const DEFAULT_DASHBOARD_URL = "https://fyjob.my.id";
 let DASHBOARD_URL = DEFAULT_DASHBOARD_URL;
 
 function normalizeDashboardUrl(rawUrl) {
@@ -71,6 +71,7 @@ let currentAnalysis = null;
 let conversationHistory = [];
 let lastDetectedUrl = "";
 let hasUploadedCV = false;
+let authAutoSyncTimer = null;
 
 const jobCardElements = {
   jobCard,
@@ -131,7 +132,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // ─── Init ───
 async function init() {
   await hydrateDashboardUrl();
-  const token = await getAuthToken();
+  let token = await getAuthToken();
+
+  if (!token) {
+    await new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: "SYNC_AUTH_NOW" }, () => resolve());
+    });
+    token = await getAuthToken();
+  }
 
   if (token) {
     await bootAuthenticatedView();
@@ -144,11 +152,36 @@ async function init() {
 function showAuth() {
   authScreen.classList.remove("hidden");
   mainScreen.classList.add("hidden");
+
+  if (!authAutoSyncTimer) {
+    authAutoSyncTimer = setInterval(async () => {
+      try {
+        let token = await getAuthToken();
+        if (!token) {
+          await new Promise((resolve) => {
+            chrome.runtime.sendMessage({ type: "SYNC_AUTH_NOW" }, () => resolve());
+          });
+          token = await getAuthToken();
+        }
+        if (token) {
+          clearInterval(authAutoSyncTimer);
+          authAutoSyncTimer = null;
+          await bootAuthenticatedView();
+        }
+      } catch {
+        // keep silent auto-polling
+      }
+    }, 3000);
+  }
 }
 
 function showMain() {
   authScreen.classList.add("hidden");
   mainScreen.classList.remove("hidden");
+  if (authAutoSyncTimer) {
+    clearInterval(authAutoSyncTimer);
+    authAutoSyncTimer = null;
+  }
 }
 
 $("#btn-login").addEventListener("click", () => {
@@ -159,10 +192,19 @@ $("#btn-login").addEventListener("click", () => {
 $("#btn-retry").addEventListener("click", async () => {
   let token = await getAuthToken();
   if (!token) {
-    await new Promise((resolve) => {
-      chrome.runtime.sendMessage({ type: "SYNC_AUTH_NOW" }, () => resolve());
+    const syncResult = await new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: "SYNC_AUTH_NOW" }, (res) => resolve(res || null));
     });
-    token = await getAuthToken();
+
+    // Wait briefly for async storage writes after SYNC_AUTH_NOW.
+    for (let i = 0; i < 6 && !token; i++) {
+      await new Promise((r) => setTimeout(r, 350));
+      token = await getAuthToken();
+    }
+
+    if (!token && syncResult?.error) {
+      console.warn("[FYJOB] Retry sync failed:", syncResult.error);
+    }
   }
 
   if (token) {
@@ -172,7 +214,7 @@ $("#btn-retry").addEventListener("click", async () => {
   }
 });
 
-$("#btn-logout").addEventListener("click", async () => {
+$("#btn-logout")?.addEventListener("click", async () => {
   chrome.runtime.sendMessage({ type: "LOGOUT" }, () => {
     resetAnalysisState();
     showAuth();

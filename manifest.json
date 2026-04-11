@@ -42,6 +42,7 @@
     "https://*.join.com/*",
     "https://*.azurewebsites.net/*",
     "https://fyjob.my.id/*",
+    "https://*.fyjob.my.id/*",
     "https://www.fyjob.my.id/*",
     "https://*.vercel.app/*",
     "http://localhost:3000/*",
@@ -133,7 +134,9 @@
     {
       "matches": [
         "https://fyjob.my.id/*",
+        "https://*.fyjob.my.id/*",
         "https://www.fyjob.my.id/*",
+        "https://*.azurewebsites.net/*",
         "https://*.vercel.app/*",
         "http://localhost:3000/*",
         "http://127.0.0.1:3000/*",

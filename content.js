@@ -152,7 +152,8 @@ const isFyjobDashboardHost = (() => {
   const port = window.location.port;
   const isLocalDashboard = (host === "localhost" || host === "127.0.0.1") && (port === "3000" || port === "5173");
   const isFyjobDomain = host.includes("fyjob");
-  return isLocalDashboard || isFyjobDomain;
+  const isAzureFunctionsDomain = host.includes("azurewebsites.net");
+  return isLocalDashboard || isFyjobDomain || isAzureFunctionsDomain;
 })();
 
 if (isFyjobDashboardHost) {

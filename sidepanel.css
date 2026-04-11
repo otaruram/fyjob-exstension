@@ -161,25 +161,6 @@ body {
   font-weight: 700;
 }
 
-.icon-btn {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.icon-btn:hover {
-  color: var(--danger);
-  border-color: var(--danger);
-  background: var(--danger-dim);
-}
-
 /* ─── Status Bar ─── */
 .status-bar {
   display: flex;

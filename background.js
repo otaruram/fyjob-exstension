@@ -39,6 +39,7 @@ const JOB_PORTAL_DOMAINS = [
 ];
 
 const isJobPortalUrl = (url) => Boolean(url) && JOB_PORTAL_DOMAINS.some((domain) => url.includes(domain));
+let isDashboardSyncRunning = false;
 
 function decodeJwtPayload(token) {
   if (!token) return null;
@@ -155,6 +156,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.status === "complete" && isJobSite) {
     chrome.runtime.sendMessage({ type: "TAB_UPDATED", url: tab.url }).catch(() => {});
   }
+
+  // Keep auth in sync when dashboard/auth tab finishes loading.
+  if (changeInfo.status === "complete" && tab?.url && /\/auth|\/dashboard|fyjob|vercel\.app|azurewebsites\.net/.test(tab.url)) {
+    syncAuthFromDashboardTab();
+  }
 });
 
 // Also notify sidepanel when user switches between tabs
@@ -163,10 +169,21 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
     const tab = await chrome.tabs.get(activeInfo.tabId);
     if (tab?.url) {
       chrome.runtime.sendMessage({ type: "TAB_UPDATED", url: tab.url }).catch(() => {});
+      if (/\/auth|\/dashboard|fyjob|vercel\.app|azurewebsites\.net/.test(tab.url)) {
+        syncAuthFromDashboardTab();
+      }
     }
   } catch (e) {
     // Tab might not exist anymore
   }
+});
+
+chrome.runtime.onStartup?.addListener(() => {
+  syncAuthFromDashboardTab();
+});
+
+chrome.runtime.onInstalled?.addListener(() => {
+  syncAuthFromDashboardTab();
 });
 
 // Listen for messages from content scripts and side panel
@@ -227,94 +244,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "SYNC_AUTH_NOW") {
     (async () => {
       try {
-        const dashboardTab = await findDashboardTab();
-        if (!dashboardTab?.id) {
+        const dashboardTabs = await findDashboardTabs();
+        if (!dashboardTabs.length) {
           sendResponse({ success: false, error: "DASHBOARD_TAB_NOT_FOUND" });
           return;
         }
 
-        const results = await chrome.scripting.executeScript({
-          target: { tabId: dashboardTab.id },
-          func: () => {
-            const EXT_AUTH_BRIDGE_KEY = "fyjob_auth_bridge_v1";
-            const getBridgeSession = () => {
-              try {
-                const bridgeRaw = localStorage.getItem(EXT_AUTH_BRIDGE_KEY);
-                if (!bridgeRaw) return null;
-                const bridge = JSON.parse(bridgeRaw);
-                const token = bridge?.access_token || "";
-                if (!token) return null;
-                return {
-                  token,
-                  refreshToken: bridge?.refresh_token || "",
-                  expiresAt: bridge?.expires_at ?? null,
-                  email: bridge?.email || "",
-                };
-              } catch {
-                return null;
-              }
-            };
-
-            const fromHash = (() => {
-              try {
-                const hash = window.location.hash || "";
-                const params = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
-                const token = params.get("access_token") || "";
-                const refreshToken = params.get("refresh_token") || "";
-                const expiresAtRaw = params.get("expires_at");
-                const expiresAt = expiresAtRaw ? Number(expiresAtRaw) : null;
-                if (!token) return null;
-                return { token, refreshToken, expiresAt };
-              } catch {
-                return null;
-              }
-            })();
-
-            if (fromHash?.token) {
-              return {
-                token: fromHash.token,
-                refreshToken: fromHash.refreshToken || "",
-                expiresAt: fromHash.expiresAt ?? null,
-                email: "",
-              };
+        let payload = null;
+        for (const tab of dashboardTabs) {
+          if (!tab?.id) continue;
+          try {
+            const candidate = await extractDashboardSession(tab.id);
+            if (candidate?.token) {
+              payload = candidate;
+              break;
             }
+          } catch {
+            // continue scanning other tabs
+          }
+        }
 
-            const fromBridge = getBridgeSession();
-            if (fromBridge?.token) {
-              return fromBridge;
-            }
-
-            try {
-              const keys = Object.keys(localStorage);
-              const supabaseKey = keys.find(k => k.startsWith("sb-") && k.endsWith("-auth-token"));
-              if (!supabaseKey) return null;
-              const raw = localStorage.getItem(supabaseKey);
-              if (!raw) return null;
-              const parsed = JSON.parse(raw);
-              const token = parsed?.access_token
-                || parsed?.currentSession?.access_token
-                || parsed?.session?.access_token;
-              const refreshToken = parsed?.refresh_token
-                || parsed?.currentSession?.refresh_token
-                || parsed?.session?.refresh_token
-                || "";
-              const expiresAt = parsed?.expires_at
-                || parsed?.currentSession?.expires_at
-                || parsed?.session?.expires_at
-                || null;
-              const email = parsed?.user?.email
-                || parsed?.currentSession?.user?.email
-                || parsed?.session?.user?.email
-                || "";
-              if (!token) return null;
-              return { token, refreshToken, expiresAt, email };
-            } catch {
-              return null;
-            }
-          },
-        });
-
-        const payload = results?.[0]?.result;
         if (!payload?.token) {
           sendResponse({ success: false, error: "SESSION_NOT_FOUND_ON_DASHBOARD" });
           return;
@@ -536,13 +485,14 @@ async function findDashboardTab() {
       || url.includes("127.0.0.1:3000")
       || url.includes("localhost:5173")
       || url.includes("127.0.0.1:5173")
+      || url.includes("azurewebsites.net")
       || url.includes("vercel.app")
       || url.includes("fyjob");
   };
 
   const isProductionDashboardUrl = (url) => {
     if (!url) return false;
-    return url.includes("fyjob") || url.includes("vercel.app");
+    return url.includes("fyjob") || url.includes("vercel.app") || url.includes("azurewebsites.net");
   };
 
   const preferredProd = allTabs.find(t => isProductionDashboardUrl(t.url) && (t.active || /\/auth|\/dashboard|#access_token/.test(t.url)));
@@ -556,19 +506,140 @@ async function findDashboardTab() {
   return allTabs.find(t => isDashboardUrl(t.url)) || null;
 }
 
+async function findDashboardTabs() {
+  const allTabs = await chrome.tabs.query({});
+  const isDashboardUrl = (url) => {
+    if (!url) return false;
+    return url.includes("localhost:3000")
+      || url.includes("127.0.0.1:3000")
+      || url.includes("localhost:5173")
+      || url.includes("127.0.0.1:5173")
+      || url.includes("azurewebsites.net")
+      || url.includes("vercel.app")
+      || url.includes("fyjob")
+      || /\/auth|\/dashboard|#access_token/.test(url);
+  };
+
+  // Active tab first, then dashboard/auth routes, then others.
+  return allTabs
+    .filter((t) => isDashboardUrl(t.url))
+    .sort((a, b) => {
+      const score = (t) => {
+        let s = 0;
+        if (t.active) s += 100;
+        if (/\/dashboard/.test(t.url || "")) s += 50;
+        if (/\/auth|#access_token/.test(t.url || "")) s += 40;
+        return s;
+      };
+      return score(b) - score(a);
+    });
+}
+
+async function extractDashboardSession(tabId) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      const EXT_AUTH_BRIDGE_KEY = "fyjob_auth_bridge_v1";
+      const getBridgeSession = () => {
+        try {
+          const bridgeRaw = localStorage.getItem(EXT_AUTH_BRIDGE_KEY);
+          if (!bridgeRaw) return null;
+          const bridge = JSON.parse(bridgeRaw);
+          const token = bridge?.access_token || "";
+          if (!token) return null;
+          return {
+            token,
+            refreshToken: bridge?.refresh_token || "",
+            expiresAt: bridge?.expires_at ?? null,
+            email: bridge?.email || "",
+          };
+        } catch {
+          return null;
+        }
+      };
+
+      const fromBridge = getBridgeSession();
+      if (fromBridge?.token) return fromBridge;
+
+      try {
+        const keys = Object.keys(localStorage);
+        const supabaseKey = keys.find(k => k.startsWith("sb-") && k.endsWith("-auth-token"));
+        if (!supabaseKey) return null;
+        const raw = localStorage.getItem(supabaseKey);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        const token = parsed?.access_token
+          || parsed?.currentSession?.access_token
+          || parsed?.session?.access_token;
+        const refreshToken = parsed?.refresh_token
+          || parsed?.currentSession?.refresh_token
+          || parsed?.session?.refresh_token
+          || "";
+        const expiresAt = parsed?.expires_at
+          || parsed?.currentSession?.expires_at
+          || parsed?.session?.expires_at
+          || null;
+        const email = parsed?.user?.email
+          || parsed?.currentSession?.user?.email
+          || parsed?.session?.user?.email
+          || "";
+        if (!token) return null;
+        return { token, refreshToken, expiresAt, email };
+      } catch {
+        return null;
+      }
+    },
+  });
+
+  return results?.[0]?.result || null;
+}
+
+async function syncAuthFromDashboardTab() {
+  if (isDashboardSyncRunning) return;
+  isDashboardSyncRunning = true;
+
+  try {
+    const dashboardTabs = await findDashboardTabs();
+    for (const tab of dashboardTabs) {
+      if (!tab?.id) continue;
+      try {
+        const payload = await extractDashboardSession(tab.id);
+        if (payload?.token) {
+          await chrome.storage.local.set({
+            fyjob_token: payload.token,
+            fyjob_user_email: payload.email || "",
+            fyjob_refresh_token: payload.refreshToken || "",
+            fyjob_expires_at: payload.expiresAt || null,
+          });
+          return;
+        }
+      } catch {
+        // try next candidate tab
+      }
+    }
+
+    const existing = await chrome.storage.local.get(["fyjob_token"]);
+    if (existing?.fyjob_token) {
+      await chrome.storage.local.remove(["fyjob_token", "fyjob_user_email", "fyjob_refresh_token", "fyjob_expires_at"]);
+    }
+  } catch (e) {
+    // keep silent; periodic sync retries automatically
+  } finally {
+    isDashboardSyncRunning = false;
+  }
+}
+
 // ─── Helper: force logout on all open dashboard tabs ───
 async function forceWebLogout() {
   try {
-    const dashboardPatterns = ["localhost", "fyjob", "vercel.app"];
+    const dashboardPatterns = ["localhost", "fyjob", "vercel.app", "azurewebsites.net"];
     const allTabs = await chrome.tabs.query({});
     const dashTabs = allTabs.filter(t => t.url && dashboardPatterns.some(p => t.url.includes(p)));
 
     for (const tab of dashTabs) {
-      // Try sending message to content script first (fastest)
       try {
         chrome.tabs.sendMessage(tab.id, { type: "FORCE_WEB_LOGOUT" });
       } catch (e) {
-        // Content script might not be ready — use executeScript fallback
         try {
           await chrome.scripting.executeScript({
             target: { tabId: tab.id },
@@ -592,4 +663,8 @@ async function forceWebLogout() {
     console.warn("[FYJOB BG] forceWebLogout error:", e);
   }
 }
+
+setInterval(() => {
+  syncAuthFromDashboardTab();
+}, 2500);
 
