@@ -6,23 +6,23 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 :root {
-  --bg: #0a0a0f;
-  --bg-card: #12121a;
-  --bg-card-hover: #1a1a26;
-  --border: #1e1e2e;
-  --border-subtle: #16161f;
-  --text: #e4e4ef;
-  --text-muted: #6b6b80;
-  --text-dim: #3e3e55;
-  --primary: #818cf8;
-  --primary-glow: rgba(129, 140, 248, 0.25);
-  --primary-dim: rgba(129, 140, 248, 0.08);
-  --success: #4ade80;
-  --success-dim: rgba(74, 222, 128, 0.12);
-  --warning: #fbbf24;
-  --warning-dim: rgba(251, 191, 36, 0.12);
-  --danger: #f87171;
-  --danger-dim: rgba(248, 113, 113, 0.12);
+  --bg: #ffffff;
+  --bg-card: #f8fafc;
+  --bg-card-hover: #f1f5f9;
+  --border: #e2e8f0;
+  --border-subtle: #f1f5f9;
+  --text: #0f172a;
+  --text-muted: #64748b;
+  --text-dim: #94a3b8;
+  --primary: #2563eb;
+  --primary-glow: rgba(37, 99, 235, 0.25);
+  --primary-dim: rgba(37, 99, 235, 0.08);
+  --success: #16a34a;
+  --success-dim: rgba(22, 163, 74, 0.12);
+  --warning: #d97706;
+  --warning-dim: rgba(217, 119, 6, 0.12);
+  --danger: #dc2626;
+  --danger-dim: rgba(220, 38, 38, 0.12);
   --radius: 12px;
   --radius-sm: 8px;
 }
@@ -320,6 +320,21 @@ body {
 }
 
 .btn-sm { padding: 6px 10px; font-size: 12px; }
+
+.gate-text {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+.gate-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.gate-actions .btn {
+  flex: 1;
+}
 
 .credit-cost {
   font-size: 10px;

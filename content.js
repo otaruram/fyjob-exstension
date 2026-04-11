@@ -112,19 +112,78 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-// ─── Auth Token Sync (runs on dashboard page) ───
-if (window.location.hostname === "localhost" || window.location.hostname.includes("fyjob")) {
+// ─── Auth Token Sync (runs only on FYJOB dashboard page) ───
+const isFyjobDashboardHost = (() => {
+  const host = window.location.hostname;
+  const port = window.location.port;
+  const isLocalDashboard = (host === "localhost" || host === "127.0.0.1") && (port === "3000" || port === "5173");
+  const isFyjobDomain = host.includes("fyjob");
+  return isLocalDashboard || isFyjobDomain;
+})();
+
+if (isFyjobDashboardHost) {
   let lastSyncedToken = "";
+  let lastSyncedRefreshToken = "";
+  const EXT_AUTH_BRIDGE_KEY = "fyjob_auth_bridge_v1";
   
   /**
    * Reads the Supabase session from localStorage and syncs it to the extension.
-   * Returns true if a new token was synced.
+   * Also detects LOGOUT (token removed) and notifies the extension.
    */
   const trySync = () => {
     try {
+      const bridgeRaw = localStorage.getItem(EXT_AUTH_BRIDGE_KEY);
+      if (bridgeRaw) {
+        try {
+          const bridge = JSON.parse(bridgeRaw);
+          const bridgeToken = bridge?.access_token || "";
+          const bridgeRefresh = bridge?.refresh_token || "";
+          const bridgeExpiresAt = bridge?.expires_at || null;
+          const bridgeEmail = bridge?.email || "";
+
+          if (bridgeToken && (bridgeToken !== lastSyncedToken || bridgeRefresh !== lastSyncedRefreshToken)) {
+            chrome.runtime.sendMessage({
+              type: "SAVE_AUTH_TOKEN",
+              token: bridgeToken,
+              email: bridgeEmail,
+              refreshToken: bridgeRefresh,
+              expiresAt: bridgeExpiresAt,
+            }, (response) => {
+              if (chrome.runtime.lastError) return;
+              if (response?.success) {
+                lastSyncedToken = bridgeToken;
+                lastSyncedRefreshToken = bridgeRefresh;
+              }
+            });
+            return;
+          }
+
+          if (!bridgeToken && lastSyncedToken) {
+            chrome.runtime.sendMessage({ type: "SYNC_LOGOUT" });
+            lastSyncedToken = "";
+            lastSyncedRefreshToken = "";
+            return;
+          }
+        } catch {
+          // ignore bridge parse failures and continue to Supabase key fallback
+        }
+      }
+
       const keys = Object.keys(localStorage);
       const supabaseKey = keys.find(k => k.startsWith("sb-") && k.endsWith("-auth-token"));
-      if (!supabaseKey) return;
+      
+      // Do not auto-logout extension on temporary missing key.
+      // Session key can be transiently unavailable during OAuth/callback hydration.
+      if (!supabaseKey || !localStorage.getItem(supabaseKey)) {
+        if (lastSyncedToken) {
+          // Token existed, now it's gone -> Web has logged out!
+          console.log("[FYJOB] Web logout detected — notifying extension");
+          chrome.runtime.sendMessage({ type: "SYNC_LOGOUT" });
+          lastSyncedToken = "";
+          lastSyncedRefreshToken = "";
+        }
+        return;
+      }
 
       const raw = localStorage.getItem(supabaseKey);
       if (!raw) return;
@@ -135,17 +194,28 @@ if (window.location.hostname === "localhost" || window.location.hostname.include
       const token = parsed?.access_token 
         || parsed?.currentSession?.access_token
         || parsed?.session?.access_token;
+      const refreshToken = parsed?.refresh_token
+        || parsed?.currentSession?.refresh_token
+        || parsed?.session?.refresh_token
+        || "";
+      const expiresAt = parsed?.expires_at
+        || parsed?.currentSession?.expires_at
+        || parsed?.session?.expires_at
+        || null;
       const email = parsed?.user?.email 
         || parsed?.currentSession?.user?.email
         || parsed?.session?.user?.email 
         || "";
 
-      if (!token || token === lastSyncedToken) return;
+      if (!token) return;
+      if (token === lastSyncedToken && refreshToken === lastSyncedRefreshToken) return;
 
       chrome.runtime.sendMessage({
         type: "SAVE_AUTH_TOKEN",
         token,
-        email
+        email,
+        refreshToken,
+        expiresAt
       }, (response) => {
         if (chrome.runtime.lastError) {
           // Extension context invalidated — ignore silently
@@ -170,6 +240,7 @@ if (window.location.hostname === "localhost" || window.location.hostname.include
           }
           
           lastSyncedToken = token;
+          lastSyncedRefreshToken = refreshToken;
         }
       });
     } catch (e) {
@@ -177,12 +248,35 @@ if (window.location.hostname === "localhost" || window.location.hostname.include
     }
   };
 
+  // ── Listen for LOGOUT command from extension ──
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === "FORCE_WEB_LOGOUT") {
+      console.log("[FYJOB] 🔒 Extension requested web logout");
+      // Clear ALL Supabase auth tokens from localStorage
+      const keys = Object.keys(localStorage);
+      keys.forEach(k => {
+        if (k.startsWith("sb-") && k.endsWith("-auth-token")) {
+          localStorage.removeItem(k);
+        }
+      });
+      localStorage.removeItem(EXT_AUTH_BRIDGE_KEY);
+      lastSyncedToken = "";
+      lastSyncedRefreshToken = "";
+      // Reload the page to trigger Supabase's auth state change
+      window.location.reload();
+      sendResponse({ success: true });
+    }
+    return true;
+  });
+
   // ── Smart sync strategy ──
 
   // 1. Listen for localStorage changes (fires when Supabase updates the session)
-  //    This is faster and more reliable than polling alone
   window.addEventListener("storage", (e) => {
-    if (e.key && e.key.startsWith("sb-") && e.key.endsWith("-auth-token")) {
+    if (
+      (e.key && e.key.startsWith("sb-") && e.key.endsWith("-auth-token"))
+      || e.key === EXT_AUTH_BRIDGE_KEY
+    ) {
       console.log("[FYJOB] Storage event detected — syncing token");
       trySync();
     }
@@ -191,22 +285,27 @@ if (window.location.hostname === "localhost" || window.location.hostname.include
   // 2. Listen for Supabase's custom auth events via BroadcastChannel (Supabase v2)
   try {
     const bc = new BroadcastChannel("supabase.auth");
-    bc.onmessage = () => {
+    bc.onmessage = (event) => {
+      const authEvent = event?.data?.event;
+      if (authEvent === "SIGNED_OUT" && lastSyncedToken) {
+        chrome.runtime.sendMessage({ type: "SYNC_LOGOUT" });
+        lastSyncedToken = "";
+        lastSyncedRefreshToken = "";
+        return;
+      }
       console.log("[FYJOB] Supabase auth broadcast received — syncing token");
-      setTimeout(trySync, 200); // Small delay to let Supabase finish writing
+      setTimeout(trySync, 200);
     };
   } catch (e) {
     // BroadcastChannel not supported — fall back to polling only
   }
 
-  // 3. On initial page load: wait for Supabase to process OAuth hash before first sync
-  //    The hash fragment takes a moment to be consumed and stored
+  // 3. On initial page load
   const hasOAuthHash = window.location.hash.includes("access_token");
   const initialDelay = hasOAuthHash ? 2000 : 500;
-
   setTimeout(trySync, initialDelay);
 
-  // 4. Keep polling every 8s to catch token refreshes (less aggressive than before)
+  // 4. Keep polling every 8s to catch token refreshes AND logouts
   setInterval(trySync, 8000);
 }
 

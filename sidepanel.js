@@ -4,7 +4,7 @@
  */
 
 // ─── Dashboard URL ───
-const DASHBOARD_URL = "http://localhost:3000"; // Change to production URL in release
+const DASHBOARD_URL = "https://fyjob.my.id";
 
 // ─── Auto-detect auth token arrival ───
 chrome.storage.onChanged.addListener((changes, namespace) => {
@@ -40,17 +40,48 @@ const scoreNumber = $("#score-number");
 const scoreLabel = $("#score-label");
 const skillGaps = $("#skill-gaps");
 const insightText = $("#insight-text");
-const chatMessages = $("#chat-messages");
-const chatInput = $("#chat-input");
-const btnSend = $("#btn-send");
 const creditCount = $("#credit-count");
 const historyList = $("#history-list");
 const btnDashboard = $("#btn-dashboard");
+const cvRequired = $("#cv-required");
+const btnOpenCvManager = $("#btn-open-cv-manager");
+const btnOpenCvflow = $("#btn-open-cvflow");
 
 // ─── State ───
 let currentJobData = null;
 let currentAnalysis = null;
 let conversationHistory = [];
+let lastDetectedUrl = "";
+let hasUploadedCV = false;
+
+function applyCvGate() {
+  if (!hasUploadedCV) {
+    cvRequired?.classList.remove("hidden");
+    btnScan.disabled = true;
+    setStatus("error", "Upload CV dulu di dashboard sebelum scan job");
+    return;
+  }
+
+  cvRequired?.classList.add("hidden");
+  if (currentJobData?.jobDescription && currentJobData.jobDescription.length >= 50) {
+    btnScan.disabled = false;
+  }
+}
+
+// ─── Listen for tab navigation → auto re-detect job ───
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === "TAB_UPDATED" && message.url) {
+    // Only re-detect if URL actually changed (avoid duplicate scrapes)
+    if (message.url !== lastDetectedUrl && mainScreen && !mainScreen.classList.contains("hidden")) {
+      lastDetectedUrl = message.url;
+      // Clear old analysis so user doesn't see stale results
+      currentAnalysis = null;
+      conversationHistory = [];
+      resultsSection?.classList.add("hidden");
+      detectJob();
+    }
+  }
+});
 
 // ─── Init ───
 async function init() {
@@ -83,7 +114,14 @@ $("#btn-login").addEventListener("click", () => {
 });
 
 $("#btn-retry").addEventListener("click", async () => {
-  const token = await getAuthToken();
+  let token = await getAuthToken();
+  if (!token) {
+    await new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: "SYNC_AUTH_NOW" }, () => resolve());
+    });
+    token = await getAuthToken();
+  }
+
   if (token) {
     showMain();
     loadCredits();
@@ -103,10 +141,19 @@ $("#btn-logout").addEventListener("click", async () => {
   });
 });
 
+btnOpenCvManager?.addEventListener("click", () => {
+  chrome.tabs.create({ url: `${DASHBOARD_URL}/dashboard/cv` });
+});
+
+btnOpenCvflow?.addEventListener("click", () => {
+  chrome.tabs.create({ url: "https://flowcv.com/" });
+});
+
 // ─── Credits ───
 async function loadCredits() {
   try {
     const stats = await getUserStats();
+    hasUploadedCV = Boolean(stats.cv_uploaded);
     const pill = $("#credit-pill");
     const isAdmin = stats.role === "admin";
 
@@ -123,6 +170,8 @@ async function loadCredits() {
         pill.style.background = "var(--danger-dim)";
       }
     }
+
+    applyCvGate();
   } catch (e) {
     if (e.message === "NOT_AUTHENTICATED") {
       showAuth();
@@ -134,6 +183,11 @@ async function loadCredits() {
 
 // ─── Job Detection ───
 async function detectJob() {
+  if (!hasUploadedCV) {
+    applyCvGate();
+    return;
+  }
+
   setStatus("detecting", "Extracting job data...");
 
   try {
@@ -147,7 +201,7 @@ async function detectJob() {
       if (response.error.includes("Content script not ready")) {
         setStatus("error", "Content script missing — Please REFRESH the LinkedIn page (F5)!");
       } else {
-        setStatus("error", "No job detected on this page");
+        setStatus("error", "Error: " + response.error);
       }
       jobCard.classList.add("hidden");
       btnScan.disabled = true;
@@ -173,7 +227,9 @@ async function detectJob() {
 
       jobCard.classList.remove("hidden");
       btnScan.disabled = false;
+      lastDetectedUrl = currentJobData.url || "";
       setStatus("active", `Ready — ${currentJobData.portal}`);
+      applyCvGate();
     } else {
       setStatus("error", "Could not extract job data");
       btnScan.disabled = true;
@@ -217,6 +273,12 @@ btnScan.addEventListener("click", async () => {
 
     // Refresh history
     loadHistory();
+
+    // Auto open Web Dashboard with context
+    const analysisId = result.id || result.analysis_id;
+    if (analysisId) {
+      chrome.tabs.create({ url: `${DASHBOARD_URL}/dashboard?context=${analysisId}` });
+    }
   } catch (e) {
     if (e.message === "NO_CREDITS") {
       alert("Kredit habis! Tunggu besok untuk mendapat +1 kredit, atau buka Dashboard untuk info lebih lanjut.");
@@ -288,9 +350,6 @@ function renderResults(data) {
   // Dashboard link
   btnDashboard.href = `${DASHBOARD_URL}/dashboard`;
 
-  // Reset chat
-  chatMessages.innerHTML = "";
-  addChatBubble("ujang", `Gue udah analisis job "${data.jobTitle || 'ini'}". Mau tanya apa? Langsung aja, gak usah basa-basi.`);
 }
 
 function animateNumber(el, from, to, duration) {
@@ -305,76 +364,6 @@ function animateNumber(el, from, to, duration) {
   };
   requestAnimationFrame(tick);
 }
-
-// ─── Chat ───
-function addChatBubble(role, text) {
-  const bubble = document.createElement("div");
-  bubble.className = `chat-bubble ${role}`;
-  bubble.textContent = text;
-  chatMessages.appendChild(bubble);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
-}
-
-function addTypingIndicator() {
-  const el = document.createElement("div");
-  el.className = "chat-bubble ujang";
-  el.id = "typing-indicator";
-  el.innerHTML = '<div class="typing-dots"><span></span><span></span><span></span></div>';
-  chatMessages.appendChild(el);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
-}
-
-function removeTypingIndicator() {
-  const el = document.getElementById("typing-indicator");
-  if (el) el.remove();
-}
-
-async function sendChat() {
-  const msg = chatInput.value.trim();
-  if (!msg) return;
-
-  chatInput.value = "";
-  addChatBubble("user", msg);
-  addTypingIndicator();
-
-  try {
-    // Filter history, ensuring we only pass alternating user-assistant messages
-    const formattedHistory = conversationHistory.filter(m => m.content.trim() !== "");
-    
-    const res = await chatWithUjang(
-      msg,
-      currentAnalysis?.id || currentAnalysis?.analysis_id,
-      formattedHistory
-    );
-
-    removeTypingIndicator();
-    addChatBubble("ujang", res.response);
-
-    // Track conversation
-    conversationHistory.push({ role: "user", content: msg });
-    conversationHistory.push({ role: "assistant", content: res.response });
-
-    // Update credits
-    if (res.credits_remaining !== undefined) {
-      creditCount.textContent = res.credits_remaining;
-    }
-  } catch (e) {
-    removeTypingIndicator();
-    if (e.message === "NO_CREDITS") {
-      addChatBubble("ujang", "Kredit lo udah habis bro. Tunggu besok buat nambah 1 kredit. Atau buka Dashboard buat detail.");
-    } else {
-      addChatBubble("ujang", "(Error) Gue lagi error nih: " + e.message);
-    }
-  }
-}
-
-btnSend.addEventListener("click", sendChat);
-chatInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    sendChat();
-  }
-});
 
 // ─── History ───
 async function loadHistory() {
