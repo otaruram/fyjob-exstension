@@ -5,6 +5,123 @@
 
 const SUPABASE_URL = "https://iplciyfnwwiyjtvrvqza.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_C5rgYqsle-9YyDW1YeG67A_O_x46k5y";
+const EXT_AUTH_BRIDGE_KEY = "fyjob_auth_bridge_v1";
+const JOB_PORTAL_DOMAINS = [
+  "linkedin.com",
+  "indeed.com",
+  "jobstreet.co.id",
+  "jobstreet.com",
+  "jobsdb.com",
+  "kalibrr.com",
+  "glints.com",
+  "karir.com",
+  "glassdoor.com",
+  "monster.com",
+  "ziprecruiter.com",
+  "simplyhired.com",
+  "dice.com",
+  "wellfound.com",
+  "builtin.com",
+  "jobs.lever.co",
+  "lever.co",
+  "greenhouse.io",
+  "ashbyhq.com",
+  "smartrecruiters.com",
+  "workable.com",
+  "myworkdayjobs.com",
+  "workday.com",
+  "jobvite.com",
+  "icims.com",
+  "taleo.net",
+  "boards.greenhouse.io",
+  "recruitee.com",
+  "join.com"
+];
+
+const isJobPortalUrl = (url) => Boolean(url) && JOB_PORTAL_DOMAINS.some((domain) => url.includes(domain));
+
+function decodeJwtPayload(token) {
+  if (!token) return null;
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+
+  try {
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
+  }
+}
+
+function getJwtExpiration(token) {
+  const payload = decodeJwtPayload(token);
+  const exp = Number(payload?.exp);
+  return Number.isFinite(exp) ? exp : null;
+}
+
+function getEffectiveExpiry(token, expiresAt) {
+  const expiresAtNumber = Number(expiresAt);
+  if (Number.isFinite(expiresAtNumber)) return expiresAtNumber;
+  return getJwtExpiration(token);
+}
+
+function isTokenExpiringSoon(token, expiresAt, bufferSeconds = 300) {
+  const effectiveExpiry = getEffectiveExpiry(token, expiresAt);
+  if (!effectiveExpiry) return false;
+  const nowInSeconds = Math.floor(Date.now() / 1000);
+  return effectiveExpiry <= nowInSeconds + bufferSeconds;
+}
+
+async function refreshAuthTokenFromStorage() {
+  const data = await chrome.storage.local.get(["fyjob_refresh_token"]);
+  const refreshToken = data?.fyjob_refresh_token;
+  if (!refreshToken) {
+    return { success: false, error: "NO_REFRESH_TOKEN" };
+  }
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_PUBLISHABLE_KEY,
+      },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+
+    if (!res.ok) {
+      return { success: false, error: `REFRESH_FAILED_${res.status}` };
+    }
+
+    const payload = await res.json();
+    const nextToken = payload?.access_token;
+    const nextRefreshToken = payload?.refresh_token || refreshToken;
+  const nextExpiresAt = payload?.expires_at || getJwtExpiration(nextToken);
+    const email = payload?.user?.email || "";
+
+    if (!nextToken) {
+      return { success: false, error: "INVALID_REFRESH_RESPONSE" };
+    }
+
+    await chrome.storage.local.set({
+      fyjob_token: nextToken,
+      fyjob_refresh_token: nextRefreshToken,
+      fyjob_expires_at: nextExpiresAt,
+      fyjob_user_email: email,
+    });
+
+    return {
+      success: true,
+      token: nextToken,
+      refreshToken: nextRefreshToken,
+      expiresAt: nextExpiresAt,
+      email,
+    };
+  } catch (e) {
+    return { success: false, error: e.message || "REFRESH_ERROR" };
+  }
+}
 
 // Open side panel when extension icon is clicked
 chrome.action.onClicked.addListener(async (tab) => {
@@ -22,14 +139,7 @@ chrome.action.onClicked.addListener(async (tab) => {
 // Enable side panel on supported job portal tabs + notify sidepanel of navigation
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (!tab.url) return;
-
-  const jobPortals = [
-    "linkedin.com", "indeed.com", "jobstreet.co.id",
-    "kalibrr.com", "glints.com", "karir.com",
-    "lever.co", "greenhouse.io", "workday.com"
-  ];
-
-  const isJobSite = jobPortals.some(p => tab.url.includes(p));
+  const isJobSite = isJobPortalUrl(tab.url);
   
   try {
     await chrome.sidePanel.setOptions({
@@ -62,11 +172,12 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
 // Listen for messages from content scripts and side panel
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "SAVE_AUTH_TOKEN") {
+    const expiresAt = message.expiresAt || getJwtExpiration(message.token);
     chrome.storage.local.set({ 
       fyjob_token: message.token,
       fyjob_user_email: message.email || "",
       fyjob_refresh_token: message.refreshToken || "",
-      fyjob_expires_at: message.expiresAt || null
+      fyjob_expires_at: expiresAt || null
     }, () => {
       sendResponse({ success: true });
     });
@@ -74,14 +185,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "GET_AUTH_TOKEN") {
-    chrome.storage.local.get(["fyjob_token", "fyjob_user_email", "fyjob_refresh_token", "fyjob_expires_at"], (data) => {
-      sendResponse({ 
+    (async () => {
+      const data = await chrome.storage.local.get(["fyjob_token", "fyjob_user_email", "fyjob_refresh_token", "fyjob_expires_at"]);
+      const hasRefreshToken = Boolean(data.fyjob_refresh_token);
+      const needsRefresh = !data.fyjob_token
+        ? hasRefreshToken
+        : isTokenExpiringSoon(data.fyjob_token, data.fyjob_expires_at);
+
+      if (needsRefresh) {
+        const refreshed = await refreshAuthTokenFromStorage();
+        if (refreshed.success) {
+          sendResponse({
+            token: refreshed.token,
+            email: refreshed.email || "",
+            refreshToken: refreshed.refreshToken || "",
+            expiresAt: refreshed.expiresAt || null,
+          });
+          return;
+        }
+
+        sendResponse({
+          token: null,
+          email: data.fyjob_user_email || "",
+          refreshToken: data.fyjob_refresh_token || "",
+          expiresAt: null,
+          error: refreshed.error || "REFRESH_FAILED",
+        });
+        return;
+      }
+
+      sendResponse({
         token: data.fyjob_token || null,
         email: data.fyjob_user_email || "",
         refreshToken: data.fyjob_refresh_token || "",
-        expiresAt: data.fyjob_expires_at || null
+        expiresAt: data.fyjob_expires_at || null,
       });
-    });
+    })();
     return true;
   }
 
@@ -97,6 +236,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const results = await chrome.scripting.executeScript({
           target: { tabId: dashboardTab.id },
           func: () => {
+            const EXT_AUTH_BRIDGE_KEY = "fyjob_auth_bridge_v1";
+            const getBridgeSession = () => {
+              try {
+                const bridgeRaw = localStorage.getItem(EXT_AUTH_BRIDGE_KEY);
+                if (!bridgeRaw) return null;
+                const bridge = JSON.parse(bridgeRaw);
+                const token = bridge?.access_token || "";
+                if (!token) return null;
+                return {
+                  token,
+                  refreshToken: bridge?.refresh_token || "",
+                  expiresAt: bridge?.expires_at ?? null,
+                  email: bridge?.email || "",
+                };
+              } catch {
+                return null;
+              }
+            };
+
             const fromHash = (() => {
               try {
                 const hash = window.location.hash || "";
@@ -119,6 +277,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 expiresAt: fromHash.expiresAt ?? null,
                 email: "",
               };
+            }
+
+            const fromBridge = getBridgeSession();
+            if (fromBridge?.token) {
+              return fromBridge;
             }
 
             try {
@@ -181,57 +344,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "REFRESH_AUTH_TOKEN") {
-    chrome.storage.local.get(["fyjob_refresh_token"], async (data) => {
-      const refreshToken = data.fyjob_refresh_token;
-      if (!refreshToken) {
-        sendResponse({ success: false, error: "NO_REFRESH_TOKEN" });
-        return;
-      }
-
-      try {
-        const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "apikey": SUPABASE_PUBLISHABLE_KEY,
-          },
-          body: JSON.stringify({ refresh_token: refreshToken }),
-        });
-
-        if (!res.ok) {
-          sendResponse({ success: false, error: `REFRESH_FAILED_${res.status}` });
-          return;
-        }
-
-        const payload = await res.json();
-        const nextToken = payload?.access_token;
-        const nextRefreshToken = payload?.refresh_token || refreshToken;
-        const nextExpiresAt = payload?.expires_at || null;
-        const email = payload?.user?.email || "";
-
-        if (!nextToken) {
-          sendResponse({ success: false, error: "INVALID_REFRESH_RESPONSE" });
-          return;
-        }
-
-        chrome.storage.local.set({
-          fyjob_token: nextToken,
-          fyjob_refresh_token: nextRefreshToken,
-          fyjob_expires_at: nextExpiresAt,
-          fyjob_user_email: email,
-        }, () => {
-          sendResponse({
-            success: true,
-            token: nextToken,
-            refreshToken: nextRefreshToken,
-            expiresAt: nextExpiresAt,
-            email,
-          });
-        });
-      } catch (e) {
-        sendResponse({ success: false, error: e.message || "REFRESH_ERROR" });
-      }
-    });
+    refreshAuthTokenFromStorage().then((result) => sendResponse(result));
     return true;
   }
 
@@ -265,6 +378,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           let company = "";
           let jobDescription = "";
           let portal = "Unknown";
+          const portalByDomain = [
+            ["linkedin.com", "LinkedIn"],
+            ["indeed.com", "Indeed"],
+            ["jobstreet.co.id", "Jobstreet"],
+            ["jobstreet.com", "Jobstreet"],
+            ["jobsdb.com", "JobsDB"],
+            ["kalibrr.com", "Kalibrr"],
+            ["glints.com", "Glints"],
+            ["karir.com", "Karir.com"],
+            ["glassdoor.com", "Glassdoor"],
+            ["monster.com", "Monster"],
+            ["ziprecruiter.com", "ZipRecruiter"],
+            ["simplyhired.com", "SimplyHired"],
+            ["dice.com", "Dice"],
+            ["wellfound.com", "Wellfound"],
+            ["builtin.com", "Built In"],
+            ["jobs.lever.co", "Lever"],
+            ["lever.co", "Lever"],
+            ["greenhouse.io", "Greenhouse"],
+            ["boards.greenhouse.io", "Greenhouse"],
+            ["ashbyhq.com", "Ashby"],
+            ["smartrecruiters.com", "SmartRecruiters"],
+            ["workable.com", "Workable"],
+            ["myworkdayjobs.com", "Workday"],
+            ["workday.com", "Workday"],
+            ["jobvite.com", "Jobvite"],
+            ["icims.com", "iCIMS"],
+            ["taleo.net", "Taleo"],
+            ["recruitee.com", "Recruitee"],
+            ["join.com", "Join"],
+          ];
 
           if (url.includes("localhost") || url.includes("fyjob")) {
             return { success: false, error: "Cannot scan FYJOB Dashboard. Open a real job portal first!" };
@@ -312,7 +456,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
           // Generic fallback
           if (!jobDescription) {
-            portal = portal === "Unknown" ? new URL(url).hostname.replace("www.", "") : portal;
+            if (portal === "Unknown") {
+              const byDomain = portalByDomain.find(([domain]) => url.includes(domain));
+              portal = byDomain ? byDomain[1] : new URL(url).hostname.replace("www.", "");
+            }
             jobTitle = jobTitle || document.querySelector("h1")?.textContent?.trim() || document.title;
             const commonSelectors = [
               "article", ".job-description", "#job-description",
@@ -360,8 +507,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // ─── Helper: find the active job portal tab, with Firefox sidebar fallback ───
 async function findJobTab() {
-  const jobPortals = ["linkedin.com", "indeed.com", "jobstreet", "kalibrr.com", "glints.com", "karir.com", "lever.co", "greenhouse.io", "workday.com"];
-  const isJobSite = (url) => url && jobPortals.some(p => url.includes(p));
+  const isJobSite = (url) => isJobPortalUrl(url);
 
   // Try 1: active tab in last focused window — but ONLY if it's a job portal
   let tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -390,10 +536,22 @@ async function findDashboardTab() {
       || url.includes("127.0.0.1:3000")
       || url.includes("localhost:5173")
       || url.includes("127.0.0.1:5173")
+      || url.includes("vercel.app")
       || url.includes("fyjob");
   };
 
-  const preferred = allTabs.find(t => isDashboardUrl(t.url) && t.active);
+  const isProductionDashboardUrl = (url) => {
+    if (!url) return false;
+    return url.includes("fyjob") || url.includes("vercel.app");
+  };
+
+  const preferredProd = allTabs.find(t => isProductionDashboardUrl(t.url) && (t.active || /\/auth|\/dashboard|#access_token/.test(t.url)));
+  if (preferredProd) return preferredProd;
+
+  const anyProd = allTabs.find(t => isProductionDashboardUrl(t.url));
+  if (anyProd) return anyProd;
+
+  const preferred = allTabs.find(t => isDashboardUrl(t.url) && (t.active || /\/auth|\/dashboard|#access_token/.test(t.url)));
   if (preferred) return preferred;
   return allTabs.find(t => isDashboardUrl(t.url)) || null;
 }
@@ -401,7 +559,7 @@ async function findDashboardTab() {
 // ─── Helper: force logout on all open dashboard tabs ───
 async function forceWebLogout() {
   try {
-    const dashboardPatterns = ["localhost", "fyjob"];
+    const dashboardPatterns = ["localhost", "fyjob", "vercel.app"];
     const allTabs = await chrome.tabs.query({});
     const dashTabs = allTabs.filter(t => t.url && dashboardPatterns.some(p => t.url.includes(p)));
 

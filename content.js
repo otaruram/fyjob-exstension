@@ -10,6 +10,37 @@ function extractJobData() {
   let company = "";
   let jobDescription = "";
   let portal = "Unknown";
+  const portalByDomain = [
+    ["linkedin.com", "LinkedIn"],
+    ["indeed.com", "Indeed"],
+    ["jobstreet.co.id", "Jobstreet"],
+    ["jobstreet.com", "Jobstreet"],
+    ["jobsdb.com", "JobsDB"],
+    ["kalibrr.com", "Kalibrr"],
+    ["glints.com", "Glints"],
+    ["karir.com", "Karir.com"],
+    ["glassdoor.com", "Glassdoor"],
+    ["monster.com", "Monster"],
+    ["ziprecruiter.com", "ZipRecruiter"],
+    ["simplyhired.com", "SimplyHired"],
+    ["dice.com", "Dice"],
+    ["wellfound.com", "Wellfound"],
+    ["builtin.com", "Built In"],
+    ["jobs.lever.co", "Lever"],
+    ["lever.co", "Lever"],
+    ["greenhouse.io", "Greenhouse"],
+    ["boards.greenhouse.io", "Greenhouse"],
+    ["ashbyhq.com", "Ashby"],
+    ["smartrecruiters.com", "SmartRecruiters"],
+    ["workable.com", "Workable"],
+    ["myworkdayjobs.com", "Workday"],
+    ["workday.com", "Workday"],
+    ["jobvite.com", "Jobvite"],
+    ["icims.com", "iCIMS"],
+    ["taleo.net", "Taleo"],
+    ["recruitee.com", "Recruitee"],
+    ["join.com", "Join"],
+  ];
 
   // ── Prevent Scrape on Dashboard ──
   if (url.includes("localhost") || url.includes("fyjob")) {
@@ -66,7 +97,10 @@ function extractJobData() {
 
   // ── Generic Fallback ──
   if (!jobDescription) {
-    portal = portal === "Unknown" ? new URL(url).hostname.replace("www.", "") : portal;
+    if (portal === "Unknown") {
+      const byDomain = portalByDomain.find(([domain]) => url.includes(domain));
+      portal = byDomain ? byDomain[1] : new URL(url).hostname.replace("www.", "");
+    }
     jobTitle = jobTitle || document.querySelector("h1")?.textContent?.trim() || document.title;
     
     // Try common selectors

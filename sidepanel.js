@@ -3,20 +3,38 @@
  * Handles: Auth flow, Job extraction, Analysis, Chat, History
  */
 
+const ui = window.SidepanelUI;
+
 // ─── Dashboard URL ───
-const DASHBOARD_URL = "https://fyjob.my.id";
+const DEFAULT_DASHBOARD_URL = "http://localhost:3000";
+let DASHBOARD_URL = DEFAULT_DASHBOARD_URL;
+
+function normalizeDashboardUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== "string") return null;
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return null;
+  return /^https?:\/\//i.test(trimmed)
+    ? trimmed.replace(/\/$/, "")
+    : `https://${trimmed.replace(/^\/+/, "").replace(/\/$/, "")}`;
+}
+
+async function hydrateDashboardUrl() {
+  try {
+    const data = await chrome.storage.local.get(["fyjob_dashboard_url"]);
+    const fromStorage = normalizeDashboardUrl(data?.fyjob_dashboard_url);
+    DASHBOARD_URL = fromStorage || DEFAULT_DASHBOARD_URL;
+  } catch {
+    DASHBOARD_URL = DEFAULT_DASHBOARD_URL;
+  }
+}
 
 // ─── Auto-detect auth token arrival ───
 chrome.storage.onChanged.addListener((changes, namespace) => {
   if (namespace === "local" && changes.fyjob_token?.newValue) {
-    // Token just arrived! Switch to main screen automatically
-    showMain();
-    loadCredits();
-    detectJob();
-    loadHistory();
+    bootAuthenticatedView();
   }
   if (namespace === "local" && changes.fyjob_token && !changes.fyjob_token.newValue) {
-    // Token was removed (logout)
+    resetAnalysisState();
     showAuth();
   }
 });
@@ -54,6 +72,36 @@ let conversationHistory = [];
 let lastDetectedUrl = "";
 let hasUploadedCV = false;
 
+const jobCardElements = {
+  jobCard,
+  jobTitle,
+  jobCompany,
+  jobPortal,
+  jobDescPreview,
+};
+
+const resultElements = {
+  resultsSection,
+  scoreRingFill,
+  scoreNumber,
+  scoreLabel,
+  skillGaps,
+  insightText,
+  btnDashboard,
+};
+
+function resetAnalysisState() {
+  currentJobData = null;
+  currentAnalysis = null;
+  conversationHistory = [];
+  resultsSection?.classList.add("hidden");
+}
+
+async function bootAuthenticatedView() {
+  showMain();
+  await Promise.allSettled([loadCredits(), detectJob(), loadHistory()]);
+}
+
 function applyCvGate() {
   if (!hasUploadedCV) {
     cvRequired?.classList.remove("hidden");
@@ -74,10 +122,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Only re-detect if URL actually changed (avoid duplicate scrapes)
     if (message.url !== lastDetectedUrl && mainScreen && !mainScreen.classList.contains("hidden")) {
       lastDetectedUrl = message.url;
-      // Clear old analysis so user doesn't see stale results
-      currentAnalysis = null;
-      conversationHistory = [];
-      resultsSection?.classList.add("hidden");
+        resetAnalysisState();
       detectJob();
     }
   }
@@ -85,13 +130,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // ─── Init ───
 async function init() {
+  await hydrateDashboardUrl();
   const token = await getAuthToken();
 
   if (token) {
-    showMain();
-    loadCredits();
-    detectJob();
-    loadHistory();
+    await bootAuthenticatedView();
   } else {
     showAuth();
   }
@@ -123,10 +166,7 @@ $("#btn-retry").addEventListener("click", async () => {
   }
 
   if (token) {
-    showMain();
-    loadCredits();
-    detectJob();
-    loadHistory();
+    await bootAuthenticatedView();
   } else {
     alert("Session belum tersedia. Pastikan kamu sudah login di Dashboard FYJOB, lalu klik Retry lagi.");
   }
@@ -134,9 +174,7 @@ $("#btn-retry").addEventListener("click", async () => {
 
 $("#btn-logout").addEventListener("click", async () => {
   chrome.runtime.sendMessage({ type: "LOGOUT" }, () => {
-    currentJobData = null;
-    currentAnalysis = null;
-    conversationHistory = [];
+    resetAnalysisState();
     showAuth();
   });
 });
@@ -155,21 +193,7 @@ async function loadCredits() {
     const stats = await getUserStats();
     hasUploadedCV = Boolean(stats.cv_uploaded);
     const pill = $("#credit-pill");
-    const isAdmin = stats.role === "admin";
-
-    if (isAdmin) {
-      creditCount.textContent = "∞";
-      pill.style.borderColor = "rgba(139,92,246,0.4)";
-      pill.style.color = "#a78bfa";
-      pill.style.background = "rgba(139,92,246,0.1)";
-    } else {
-      creditCount.textContent = stats.credits_remaining ?? "—";
-      if (stats.credits_remaining <= 0) {
-        pill.style.borderColor = "rgba(248,113,113,0.3)";
-        pill.style.color = "var(--danger)";
-        pill.style.background = "var(--danger-dim)";
-      }
-    }
+    ui.applyCreditPill(creditCount, pill, stats);
 
     applyCvGate();
   } catch (e) {
@@ -203,7 +227,7 @@ async function detectJob() {
       } else {
         setStatus("error", "Error: " + response.error);
       }
-      jobCard.classList.add("hidden");
+      ui.clearJobCard(jobCard);
       btnScan.disabled = true;
       return;
     }
@@ -214,18 +238,12 @@ async function detectJob() {
       // Validate we have enough text
       if (!currentJobData.jobDescription || currentJobData.jobDescription.length < 50) {
         setStatus("error", "Job description too short to analyze");
-        jobCard.classList.add("hidden");
+        ui.clearJobCard(jobCard);
         btnScan.disabled = true;
         return;
       }
 
-      // Populate job card
-      jobTitle.textContent = currentJobData.jobTitle || "Unknown Position";
-      jobCompany.textContent = currentJobData.company || "Unknown Company";
-      jobPortal.textContent = currentJobData.portal;
-      jobDescPreview.textContent = currentJobData.jobDescription.substring(0, 200) + "...";
-
-      jobCard.classList.remove("hidden");
+      ui.renderJobCard(jobCardElements, currentJobData);
       btnScan.disabled = false;
       lastDetectedUrl = currentJobData.url || "";
       setStatus("active", `Ready — ${currentJobData.portal}`);
@@ -241,10 +259,7 @@ async function detectJob() {
 }
 
 function setStatus(type, text) {
-  statusText.textContent = text;
-  statusDot.className = "status-dot";
-  if (type === "active") statusDot.classList.add("active");
-  if (type === "error") statusDot.classList.add("error");
+  ui.setStatus(statusDot, statusText, type, text);
 }
 
 // ─── Scan (Analyze) ───
@@ -295,61 +310,7 @@ btnScan.addEventListener("click", async () => {
 
 // ─── Render Results ───
 function renderResults(data) {
-  resultsSection.classList.remove("hidden");
-
-  // Score animation
-  const score = data.matchScore || 0;
-  const circumference = 314; // 2 * π * 50
-  const offset = circumference - (score / 100) * circumference;
-
-  // Animate score ring
-  setTimeout(() => {
-    scoreRingFill.style.strokeDashoffset = offset;
-
-    // Color based on score
-    if (score >= 80) {
-      scoreRingFill.style.stroke = "var(--success)";
-      scoreLabel.textContent = "STRONG MATCH";
-      scoreLabel.style.color = "var(--success)";
-    } else if (score >= 60) {
-      scoreRingFill.style.stroke = "var(--primary)";
-      scoreLabel.textContent = "COMPETITIVE";
-      scoreLabel.style.color = "var(--primary)";
-    } else if (score >= 40) {
-      scoreRingFill.style.stroke = "var(--warning)";
-      scoreLabel.textContent = "NEEDS WORK";
-      scoreLabel.style.color = "var(--warning)";
-    } else {
-      scoreRingFill.style.stroke = "var(--danger)";
-      scoreLabel.textContent = "HIGH RISK";
-      scoreLabel.style.color = "var(--danger)";
-    }
-  }, 100);
-
-  // Animate number count-up
-  animateNumber(scoreNumber, 0, score, 1200);
-
-  // Skill gaps
-  skillGaps.innerHTML = "";
-  const gaps = data.gaps || [];
-  gaps.forEach((gap, i) => {
-    const tag = document.createElement("span");
-    tag.className = `tag ${i < 3 ? "tag-danger" : "tag-warning"}`;
-    tag.textContent = gap;
-    skillGaps.appendChild(tag);
-  });
-
-  if (gaps.length === 0) {
-    skillGaps.innerHTML = '<span class="tag tag-warning">No critical gaps found — impressive.</span>';
-  }
-
-  // Insights
-  const insights = data.insights || [];
-  insightText.textContent = insights.join("\n\n") || "Ujang is analyzing your profile...";
-
-  // Dashboard link
-  btnDashboard.href = `${DASHBOARD_URL}/dashboard`;
-
+  ui.renderResults(resultElements, data, DASHBOARD_URL, animateNumber);
 }
 
 function animateNumber(el, from, to, duration) {
@@ -369,31 +330,10 @@ function animateNumber(el, from, to, duration) {
 async function loadHistory() {
   try {
     const history = await getAnalysisHistory(5);
-    historyList.innerHTML = "";
-
-    if (!history || history.length === 0) {
-      historyList.innerHTML = '<div style="text-align:center;color:var(--text-dim);font-size:11px;padding:12px;">No scans yet. Open a job page and hit Quick Match!</div>';
-      return;
-    }
-
-    history.forEach((item) => {
-      const score = item.matchScore || 0;
-      const scoreClass = score >= 75 ? "high" : score >= 50 ? "mid" : "low";
-
-      const el = document.createElement("div");
-      el.className = "history-item";
-      el.innerHTML = `
-        <div class="history-item-left">
-          <div class="history-item-title">${item.jobTitle || "Unknown"}</div>
-          <div class="history-item-meta">${item.portal || ""} • ${new Date(item.created_at).toLocaleDateString()}</div>
-        </div>
-        <div class="history-score ${scoreClass}">${score}%</div>
-      `;
-      historyList.appendChild(el);
-    });
+    ui.renderHistory(historyList, history);
   } catch (e) {
     if (e.message === "NOT_AUTHENTICATED") return;
-    historyList.innerHTML = '<div style="text-align:center;color:var(--text-dim);font-size:11px;padding:12px;">Failed to load history</div>';
+    historyList.innerHTML = ui.ERROR_HISTORY_MARKUP;
   }
 }
 
