@@ -50,7 +50,11 @@ function isDashboardUrl(url) {
 }
 
 function isJobPortalUrl(url) {
-  return Boolean(url) && JOB_PORTAL_MATCHERS.some((item) => url.includes(item));
+  if (!url) return false;
+  if (JOB_PORTAL_MATCHERS.some((item) => url.includes(item))) return true;
+
+  // Generic fallback for unknown portals: match common job/career paths
+  return /\b(job|jobs|career|careers|vacancy|vacancies|hiring|recruit|position|opening)\b/i.test(url);
 }
 
 function decodeJwtPayload(token) {
@@ -210,7 +214,7 @@ async function openSidePanelForTab(tabId) {
       return true;
     }
   } catch {
-    // Chrome sidepanel not available in this browser
+    // ignore and try Firefox API
   }
 
   try {
@@ -220,20 +224,6 @@ async function openSidePanelForTab(tabId) {
     }
   } catch {
     // Firefox sidebar not available
-  }
-
-  // Final fallback for Chromium variants: open a small popup window.
-  try {
-    await chrome.windows.create({
-      url: chrome.runtime.getURL("sidepanel.html"),
-      type: "popup",
-      width: 420,
-      height: 760,
-      focused: true,
-    });
-    return true;
-  } catch {
-    // ignore
   }
 
   return false;

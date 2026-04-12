@@ -33,7 +33,26 @@ const JOB_PORTAL_MATCHERS = [
 ];
 
 function isJobPortalUrl(url) {
-  return JOB_PORTAL_MATCHERS.some((item) => url.includes(item));
+  if (!url) return false;
+  if (JOB_PORTAL_MATCHERS.some((item) => url.includes(item))) return true;
+
+  // Generic fallback for unknown portals
+  return /\b(job|jobs|career|careers|vacancy|vacancies|hiring|recruit|position|opening)\b/i.test(url);
+}
+
+function isLikelyJobPage() {
+  if (!isJobPortalUrl(window.location.href)) return false;
+
+  // Structured data signal for job posting pages
+  const hasJobSchema = Boolean(document.querySelector('script[type="application/ld+json"]'))
+    && document.documentElement.innerHTML.includes("JobPosting");
+  if (hasJobSchema) return true;
+
+  // Common text signal
+  const haystack = `${document.title} ${(document.body?.innerText || "").slice(0, 2000)}`.toLowerCase();
+  const hits = ["job description", "requirements", "responsibilities", "qualifications", "apply now", "career"]
+    .filter((token) => haystack.includes(token)).length;
+  return hits >= 2;
 }
 
 function isDashboardHost() {
@@ -86,7 +105,7 @@ function extractJobFromDom() {
 }
 
 function mountFloatingButton() {
-  if (!isJobPortalUrl(window.location.href)) return;
+  if (!isLikelyJobPage()) return;
   if (document.getElementById("fyjob-fab")) return;
 
   const button = document.createElement("button");
@@ -268,6 +287,6 @@ if (isDashboardHost()) {
   initDashboardSync();
 }
 
-if (isJobPortalUrl(window.location.href)) {
+if (isLikelyJobPage()) {
   mountFloatingButton();
 }
