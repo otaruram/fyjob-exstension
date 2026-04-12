@@ -123,6 +123,32 @@ window.SidepanelUI = (() => {
     });
   }
 
+  function notify(type, message, title = "Notice", durationMs = 5000) {
+    const stack = document.getElementById("notice-stack");
+    if (!stack) return;
+
+    const item = document.createElement("div");
+    item.className = `notice ${type || "warn"}`;
+    item.innerHTML = `
+      <div>
+        <div class="notice-title">${title}</div>
+        <div class="notice-msg">${message}</div>
+      </div>
+      <button class="notice-close" aria-label="Close notification">×</button>
+    `;
+
+    const close = () => {
+      if (item.parentElement) item.parentElement.removeChild(item);
+    };
+
+    item.querySelector(".notice-close")?.addEventListener("click", close);
+    stack.appendChild(item);
+
+    if (durationMs > 0) {
+      setTimeout(close, durationMs);
+    }
+  }
+
   return {
     EMPTY_HISTORY_MARKUP,
     ERROR_HISTORY_MARKUP,
@@ -132,5 +158,6 @@ window.SidepanelUI = (() => {
     applyCreditPill,
     renderResults,
     renderHistory,
+    notify,
   };
 })();

@@ -71,6 +71,7 @@ let currentAnalysis = null;
 let conversationHistory = [];
 let lastDetectedUrl = "";
 let hasUploadedCV = false;
+let cvSyncFailed = false;
 let authAutoSyncTimer = null;
 
 const jobCardElements = {
@@ -100,10 +101,19 @@ function resetAnalysisState() {
 
 async function bootAuthenticatedView() {
   showMain();
-  await Promise.allSettled([loadCredits(), detectJob(), loadHistory()]);
+  // loadCredits MUST finish before detectJob, so CV gate has correct state
+  await loadCredits();
+  await Promise.allSettled([detectJob(), loadHistory()]);
 }
 
 function applyCvGate() {
+  if (cvSyncFailed) {
+    cvRequired?.classList.remove("hidden");
+    btnScan.disabled = true;
+    setStatus("error", "Sync gagal — klik Refresh Status atau coba Logout lalu login ulang");
+    return;
+  }
+
   if (!hasUploadedCV) {
     cvRequired?.classList.remove("hidden");
     btnScan.disabled = true;
@@ -196,8 +206,14 @@ $("#btn-retry").addEventListener("click", async () => {
       chrome.runtime.sendMessage({ type: "SYNC_AUTH_NOW" }, (res) => resolve(res || null));
     });
 
+    if (!token && !syncResult?.success) {
+      await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ type: "SYNC_AUTH_FROM_ACTIVE_TAB" }, () => resolve());
+      });
+    }
+
     // Wait briefly for async storage writes after SYNC_AUTH_NOW.
-    for (let i = 0; i < 6 && !token; i++) {
+    for (let i = 0; i < 10 && !token; i++) {
       await new Promise((r) => setTimeout(r, 350));
       token = await getAuthToken();
     }
@@ -209,8 +225,14 @@ $("#btn-retry").addEventListener("click", async () => {
 
   if (token) {
     await bootAuthenticatedView();
+    ui.notify("success", "Session tersinkron. Extension siap dipakai.", "Connected", 2800);
   } else {
-    alert("Session belum tersedia. Pastikan kamu sudah login di Dashboard FYJOB, lalu klik Retry lagi.");
+    ui.notify(
+      "warn",
+      "Session belum terbaca. Pastikan tab dashboard sudah benar-benar login, tetap terbuka, lalu klik Retry lagi.",
+      "Session Belum Tersinkron",
+      7000
+    );
   }
 });
 
@@ -229,20 +251,58 @@ btnOpenCvflow?.addEventListener("click", () => {
   chrome.tabs.create({ url: "https://flowcv.com/" });
 });
 
+$("#btn-refresh-cv-status")?.addEventListener("click", async () => {
+  setStatus("detecting", "Syncing session...");
+  // Re-sync auth from dashboard tab before retrying API
+  await new Promise((resolve) => {
+    chrome.runtime.sendMessage({ type: "SYNC_AUTH_NOW" }, () => resolve());
+  });
+  await loadCredits();
+});
+
 // ─── Credits ───
 async function loadCredits() {
+  cvSyncFailed = false;
   try {
     const stats = await getUserStats();
     hasUploadedCV = Boolean(stats.cv_uploaded);
     const pill = $("#credit-pill");
     ui.applyCreditPill(creditCount, pill, stats);
 
+    // Show backend-verified email
+    const emailLabel = $("#user-email-label");
+    if (emailLabel && stats.email) {
+      emailLabel.textContent = stats.email;
+      emailLabel.title = stats.email;
+    }
+
     applyCvGate();
   } catch (e) {
     if (e.message === "NOT_AUTHENTICATED") {
       showAuth();
     } else {
-      creditCount.textContent = "?";
+      // Retry once after a short delay
+      try {
+        await new Promise((r) => setTimeout(r, 1500));
+        const stats = await getUserStats();
+        hasUploadedCV = Boolean(stats.cv_uploaded);
+        const pill = $("#credit-pill");
+        ui.applyCreditPill(creditCount, pill, stats);
+        const emailLabel = $("#user-email-label");
+        if (emailLabel && stats.email) {
+          emailLabel.textContent = stats.email;
+          emailLabel.title = stats.email;
+        }
+        applyCvGate();
+      } catch (retryErr) {
+        if (retryErr.message === "NOT_AUTHENTICATED") {
+          showAuth();
+        } else {
+          creditCount.textContent = "?";
+          cvSyncFailed = true;
+          applyCvGate();
+        }
+      }
     }
   }
 }
@@ -338,11 +398,11 @@ btnScan.addEventListener("click", async () => {
     }
   } catch (e) {
     if (e.message === "NO_CREDITS") {
-      alert("Kredit habis! Tunggu besok untuk mendapat +1 kredit, atau buka Dashboard untuk info lebih lanjut.");
+      ui.notify("warn", "Kredit habis. Tunggu regen harian atau buka Dashboard untuk detail.", "Kredit Habis", 6500);
     } else if (e.message === "NOT_AUTHENTICATED") {
       showAuth();
     } else {
-      alert("Analysis failed: " + e.message);
+      ui.notify("error", `Analysis gagal: ${e.message}`, "Analysis Error", 7000);
     }
   } finally {
     scanLoading.classList.add("hidden");
@@ -378,6 +438,13 @@ async function loadHistory() {
     historyList.innerHTML = ui.ERROR_HISTORY_MARKUP;
   }
 }
+
+// ─── Auto-refresh when sidepanel regains focus ───
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && mainScreen && !mainScreen.classList.contains("hidden")) {
+    loadCredits();
+  }
+});
 
 // ─── Boot ───
 document.addEventListener("DOMContentLoaded", init);

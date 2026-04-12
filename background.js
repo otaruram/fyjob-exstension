@@ -285,6 +285,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "SYNC_AUTH_FROM_ACTIVE_TAB") {
+    (async () => {
+      try {
+        const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        const active = tabs?.[0];
+        if (!active?.id) {
+          sendResponse({ success: false, error: "ACTIVE_TAB_NOT_FOUND" });
+          return;
+        }
+
+        const payload = await extractDashboardSession(active.id);
+        if (!payload?.token) {
+          sendResponse({ success: false, error: "SESSION_NOT_FOUND_ON_ACTIVE_TAB" });
+          return;
+        }
+
+        await chrome.storage.local.set({
+          fyjob_token: payload.token,
+          fyjob_user_email: payload.email || "",
+          fyjob_refresh_token: payload.refreshToken || "",
+          fyjob_expires_at: payload.expiresAt || null,
+        });
+        sendResponse({ success: true });
+      } catch (e) {
+        sendResponse({ success: false, error: e?.message || "ACTIVE_TAB_SYNC_FAILED" });
+      }
+    })();
+
+    return true;
+  }
+
   if (message.type === "SYNC_LOGOUT") {
     chrome.storage.local.remove(["fyjob_token", "fyjob_user_email", "fyjob_refresh_token", "fyjob_expires_at"], () => {
       sendResponse({ success: true });
@@ -618,10 +649,9 @@ async function syncAuthFromDashboardTab() {
       }
     }
 
-    const existing = await chrome.storage.local.get(["fyjob_token"]);
-    if (existing?.fyjob_token) {
-      await chrome.storage.local.remove(["fyjob_token", "fyjob_user_email", "fyjob_refresh_token", "fyjob_expires_at"]);
-    }
+    // Do not clear existing token here.
+    // Temporary session-read failures can happen during navigation and OAuth callback.
+    // Explicit logout is handled by SYNC_LOGOUT and LOGOUT paths.
   } catch (e) {
     // keep silent; periodic sync retries automatically
   } finally {

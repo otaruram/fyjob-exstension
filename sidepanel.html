@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="sidepanel.css" />
 </head>
 <body>
+  <div id="notice-stack" class="notice-stack" aria-live="polite" aria-atomic="true"></div>
   <!-- ═══ AUTH SCREEN ═══ -->
   <div id="auth-screen" class="screen">
     <div class="auth-container">
@@ -59,6 +60,7 @@
     <div class="status-bar" id="status-bar">
       <div class="status-dot"></div>
       <span id="status-text">Detecting job page...</span>
+      <span id="user-email-label" style="margin-left:auto;font-size:10px;color:var(--muted);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title=""></span>
     </div>
 
     <!-- Job Detection Card -->
@@ -87,6 +89,7 @@
       <div class="gate-actions">
         <button id="btn-open-cv-manager" class="btn btn-outline btn-sm">Open CV Manager</button>
         <button id="btn-open-cvflow" class="btn btn-primary btn-sm">Open CVFlow</button>
+        <button id="btn-refresh-cv-status" class="btn btn-outline btn-sm">Refresh Status</button>
       </div>
     </div>
 
@@ -146,6 +149,12 @@
       <div class="card-label">RECENT SCANS</div>
       <div id="history-list" class="history-list"></div>
     </div>
+
+    <!-- Logout -->
+    <button id="btn-logout" class="btn btn-outline btn-full" style="margin-top:8px;opacity:0.7;font-size:12px;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      Logout
+    </button>
   </div>
 
   <script src="lib/api.js"></script>
