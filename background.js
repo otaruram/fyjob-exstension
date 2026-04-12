@@ -16,6 +16,8 @@ const DASHBOARD_MATCHERS = [
 const JOB_PORTAL_MATCHERS = [
   "linkedin.com",
   "indeed.com",
+  "jobs.dicoding.com",
+  "dicoding.com/jobs",
   "jobstreet.co.id",
   "jobstreet.com",
   "jobsdb.com",

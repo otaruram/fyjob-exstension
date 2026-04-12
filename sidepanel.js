@@ -25,6 +25,7 @@ const scoreLabel = $("#score-label");
 const skillGaps = $("#skill-gaps");
 const insightText = $("#insight-text");
 const btnDashboard = $("#btn-dashboard");
+const btnRestart = $("#btn-restart");
 
 const creditCount = $("#credit-count");
 const historyList = $("#history-list");
@@ -78,6 +79,13 @@ function showAuth() {
 
 function openDashboard(path = "/auth") {
   chrome.tabs.create({ url: `${DASHBOARD_URL}${path}` });
+}
+
+function restartPanel() {
+  setStatus("active", "Restarting panel...");
+  window.setTimeout(() => {
+    window.location.reload();
+  }, 120);
 }
 
 function showMain() {
@@ -192,6 +200,10 @@ async function handleScan() {
       DASHBOARD_URL,
       animateNumber
     );
+    const ctaTitle = btnDashboard?.querySelector(".cta-title");
+    if (ctaTitle) ctaTitle.textContent = "Open Dashboard Workspace";
+    const ctaSubtitle = btnDashboard?.querySelector(".cta-subtitle");
+    if (ctaSubtitle) ctaSubtitle.textContent = "View full report and continue training";
     setStatus("active", "Analysis complete.");
     await loadHistory();
   } catch (e) {
@@ -309,5 +321,9 @@ $("#btn-logout").addEventListener("click", () => {
 btnScan.addEventListener("click", () => {
   handleScan();
 });
+
+if (btnRestart) {
+  btnRestart.addEventListener("click", restartPanel);
+}
 
 boot();

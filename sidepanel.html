@@ -26,7 +26,15 @@
           <p id="user-email-label">-</p>
         </div>
       </div>
-      <div id="credit-pill" class="credit-pill"><span id="credit-count">-</span> credit</div>
+      <div class="topbar-actions">
+        <div id="credit-pill" class="credit-pill"><span id="credit-count">-</span> credit</div>
+        <button id="btn-restart" class="icon-btn" type="button" title="Restart panel" aria-label="Restart panel">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+            <path d="M21 3v6h-6" />
+          </svg>
+        </button>
+      </div>
     </header>
 
     <section class="status-wrap">
@@ -59,7 +67,10 @@
       <div class="score"><span id="score-number">0</span>% <small id="score-label">-</small></div>
       <div id="skill-gaps" class="gaps"></div>
       <p id="insight-text" class="preview">-</p>
-      <a id="btn-dashboard" class="btn" target="_blank" rel="noreferrer">Open Dashboard</a>
+      <a id="btn-dashboard" class="btn btn-dashboard-cta" target="_blank" rel="noreferrer">
+        <span class="cta-title">Open Dashboard Workspace</span>
+        <span class="cta-subtitle">View full report and continue training</span>
+      </a>
     </section>
 
     <section class="card">

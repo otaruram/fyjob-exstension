@@ -1,8 +1,11 @@
 const EXT_AUTH_BRIDGE_KEY = "fyjob_auth_bridge_v1";
+const EXT_AUTH_SYNC_EVENT = "fyjob:auth-bridge-sync";
 
 const JOB_PORTAL_MATCHERS = [
   "linkedin.com",
   "indeed.com",
+  "jobs.dicoding.com",
+  "dicoding.com/jobs",
   "jobstreet.co.id",
   "jobstreet.com",
   "jobsdb.com",
@@ -70,6 +73,7 @@ function extractJobFromDom() {
   let portal = "Unknown";
   if (url.includes("linkedin.com")) portal = "LinkedIn";
   else if (url.includes("indeed.com")) portal = "Indeed";
+  else if (url.includes("jobs.dicoding.com") || url.includes("dicoding.com/jobs")) portal = "Dicoding Jobs";
   else if (url.includes("jobstreet")) portal = "Jobstreet";
 
   const jobTitle = text(
@@ -180,6 +184,11 @@ function initDashboardSync() {
     ) {
       sync();
     }
+  });
+
+  // Immediate bridge sync from web app auth context (faster than polling).
+  window.addEventListener(EXT_AUTH_SYNC_EVENT, () => {
+    sync();
   });
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

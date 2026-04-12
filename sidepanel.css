@@ -42,6 +42,12 @@ body {
   padding: 10px;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -66,6 +72,35 @@ body {
   padding: 6px 10px;
   color: var(--muted);
   white-space: nowrap;
+}
+
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: #475569;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s, color 0.15s, background 0.15s;
+}
+
+.icon-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.icon-btn:hover {
+  border-color: #93c5fd;
+  color: var(--primary);
+  background: #eff6ff;
+}
+
+.icon-btn:active {
+  transform: scale(0.97);
 }
 
 .status-wrap {
@@ -140,6 +175,62 @@ body {
 
 .btn:hover {
   border-color: #cbd5e1;
+}
+
+.btn-dashboard-cta {
+  border-color: #bfdbfe;
+  background: linear-gradient(180deg, #f8fbff 0%, #edf4ff 100%);
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  position: relative;
+  padding: 10px 12px 10px 38px;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+
+.btn-dashboard-cta::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translateY(-50%);
+  border-radius: 6px;
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.28);
+}
+
+.btn-dashboard-cta::after {
+  content: "↗";
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-53%);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.btn-dashboard-cta:hover {
+  border-color: #93c5fd;
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.14);
+  transform: translateY(-1px);
+}
+
+.btn-dashboard-cta .cta-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e3a8a;
+  line-height: 1.2;
+}
+
+.btn-dashboard-cta .cta-subtitle {
+  font-size: 11px;
+  color: #475569;
+  line-height: 1.2;
 }
 
 .btn-primary {
