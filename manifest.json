@@ -1,14 +1,14 @@
 {
   "manifest_version": 3,
-  "name": "FYJOB — AI Job Match Scanner",
-  "version": "1.0.0",
-  "description": "Scan any job posting with brutal FAANG-level AI analysis. Know your real match score before you apply.",
+  "name": "FYJOB Scanner",
+  "version": "1.1.0",
+  "description": "Quick job match analysis with synced FYJOB auth.",
   "permissions": [
     "activeTab",
     "tabs",
     "storage",
-    "sidePanel",
-    "scripting"
+    "scripting",
+    "sidePanel"
   ],
   "host_permissions": [
     "https://*.linkedin.com/*",
@@ -40,10 +40,10 @@
     "https://*.taleo.net/*",
     "https://*.recruitee.com/*",
     "https://*.join.com/*",
-    "https://*.azurewebsites.net/*",
     "https://fyjob.my.id/*",
-    "https://*.fyjob.my.id/*",
     "https://www.fyjob.my.id/*",
+    "https://*.fyjob.my.id/*",
+    "https://*.azurewebsites.net/*",
     "https://*.vercel.app/*",
     "http://localhost:3000/*",
     "http://127.0.0.1:3000/*",
@@ -51,12 +51,12 @@
     "http://127.0.0.1:5173/*"
   ],
   "action": {
+    "default_title": "Open FYJOB Scanner",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
-    },
-    "default_title": "Open FYJOB Scanner"
+    }
   },
   "side_panel": {
     "default_path": "sidepanel.html"
@@ -69,29 +69,6 @@
   "background": {
     "scripts": ["background.js"],
     "type": "module"
-  },
-  "browser_specific_settings": {
-    "gecko": {
-      "id": "fypodku@otaruram.dev",
-      "strict_min_version": "140.0",
-      "data_collection_permissions": {
-        "required": [
-          "websiteContent",
-          "browsingActivity",
-          "authenticationInfo"
-        ]
-      }
-    },
-    "gecko_android": {
-      "strict_min_version": "128.0",
-      "data_collection_permissions": {
-        "required": [
-          "websiteContent",
-          "browsingActivity",
-          "authenticationInfo"
-        ]
-      }
-    }
   },
   "content_scripts": [
     {
@@ -124,18 +101,10 @@
         "https://*.icims.com/*",
         "https://*.taleo.net/*",
         "https://*.recruitee.com/*",
-        "https://*.join.com/*"
-      ],
-      "js": [
-        "content.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
+        "https://*.join.com/*",
         "https://fyjob.my.id/*",
-        "https://*.fyjob.my.id/*",
         "https://www.fyjob.my.id/*",
+        "https://*.fyjob.my.id/*",
         "https://*.azurewebsites.net/*",
         "https://*.vercel.app/*",
         "http://localhost:3000/*",
@@ -143,15 +112,25 @@
         "http://localhost:5173/*",
         "http://127.0.0.1:5173/*"
       ],
-      "js": [
-        "content.js"
-      ],
+      "js": ["content.js"],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/*.png"],
+      "matches": ["<all_urls>"]
     }
   ],
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "fypodku@otaruram.dev",
+      "strict_min_version": "140.0"
+    }
   }
 }

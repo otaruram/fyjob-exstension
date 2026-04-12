@@ -1,6 +1,6 @@
 window.SidepanelUI = (() => {
-  const EMPTY_HISTORY_MARKUP = '<div style="text-align:center;color:var(--text-dim);font-size:11px;padding:12px;">No scans yet. Open a job page and hit Quick Match!</div>';
-  const ERROR_HISTORY_MARKUP = '<div style="text-align:center;color:var(--text-dim);font-size:11px;padding:12px;">Failed to load history</div>';
+  const EMPTY_HISTORY_MARKUP = "<div class='muted'>No scans yet.</div>";
+  const ERROR_HISTORY_MARKUP = "<div class='muted'>Failed to load history</div>";
 
   function setStatus(statusDot, statusText, type, text) {
     statusText.textContent = text;
@@ -16,137 +16,86 @@ window.SidepanelUI = (() => {
   function renderJobCard(elements, jobData) {
     elements.jobTitle.textContent = jobData.jobTitle || "Unknown Position";
     elements.jobCompany.textContent = jobData.company || "Unknown Company";
-    elements.jobPortal.textContent = jobData.portal;
-    elements.jobDescPreview.textContent = `${jobData.jobDescription.substring(0, 200)}...`;
+    elements.jobPortal.textContent = jobData.portal || "Unknown";
+    const preview = jobData.jobDescription || "";
+    elements.jobDescPreview.textContent = preview.length > 220 ? `${preview.slice(0, 220)}...` : preview;
     elements.jobCard.classList.remove("hidden");
   }
 
   function applyCreditPill(creditCount, pill, stats) {
-    const isAdmin = stats.role === "admin";
-
+    const isAdmin = stats?.role === "admin";
+    creditCount.textContent = isAdmin ? "∞" : String(stats?.credits_remaining ?? "-");
     if (isAdmin) {
-      creditCount.textContent = "∞";
-      pill.style.borderColor = "rgba(139,92,246,0.4)";
-      pill.style.color = "#a78bfa";
-      pill.style.background = "rgba(139,92,246,0.1)";
+      pill.style.borderColor = "#bbf7d0";
+      pill.style.color = "#166534";
       return;
     }
-
-    creditCount.textContent = stats.credits_remaining ?? "—";
     pill.style.borderColor = "";
     pill.style.color = "";
-    pill.style.background = "";
-
-    if (stats.credits_remaining <= 0) {
-      pill.style.borderColor = "rgba(248,113,113,0.3)";
-      pill.style.color = "var(--danger)";
-      pill.style.background = "var(--danger-dim)";
-    }
   }
 
   function renderResults(elements, data, dashboardUrl, animateNumber) {
     elements.resultsSection.classList.remove("hidden");
+    const score = Number(data?.matchScore || 0);
+    animateNumber(elements.scoreNumber, 0, score, 500);
 
-    const score = data.matchScore || 0;
-    const circumference = 314;
-    const offset = circumference - (score / 100) * circumference;
-
-    setTimeout(() => {
-      elements.scoreRingFill.style.strokeDashoffset = offset;
-
-      if (score >= 80) {
-        elements.scoreRingFill.style.stroke = "var(--success)";
-        elements.scoreLabel.textContent = "STRONG MATCH";
-        elements.scoreLabel.style.color = "var(--success)";
-      } else if (score >= 60) {
-        elements.scoreRingFill.style.stroke = "var(--primary)";
-        elements.scoreLabel.textContent = "COMPETITIVE";
-        elements.scoreLabel.style.color = "var(--primary)";
-      } else if (score >= 40) {
-        elements.scoreRingFill.style.stroke = "var(--warning)";
-        elements.scoreLabel.textContent = "NEEDS WORK";
-        elements.scoreLabel.style.color = "var(--warning)";
-      } else {
-        elements.scoreRingFill.style.stroke = "var(--danger)";
-        elements.scoreLabel.textContent = "HIGH RISK";
-        elements.scoreLabel.style.color = "var(--danger)";
-      }
-    }, 100);
-
-    animateNumber(elements.scoreNumber, 0, score, 1200);
-
-    elements.skillGaps.innerHTML = "";
-    const gaps = data.gaps || [];
-    gaps.forEach((gap, index) => {
-      const tag = document.createElement("span");
-      tag.className = `tag ${index < 3 ? "tag-danger" : "tag-warning"}`;
-      tag.textContent = gap;
-      elements.skillGaps.appendChild(tag);
-    });
-
-    if (gaps.length === 0) {
-      elements.skillGaps.innerHTML = '<span class="tag tag-warning">No critical gaps found — impressive.</span>';
+    if (score >= 80) {
+      elements.scoreLabel.textContent = "Strong Match";
+    } else if (score >= 60) {
+      elements.scoreLabel.textContent = "Competitive";
+    } else if (score >= 40) {
+      elements.scoreLabel.textContent = "Needs Work";
+    } else {
+      elements.scoreLabel.textContent = "High Risk";
     }
 
-    const insightContent = Array.isArray(data.insights)
-      ? data.insights.join("\n\n")
-      : typeof data.insights === "string"
-        ? data.insights
-        : "Ujang is analyzing your profile...";
+    elements.skillGaps.innerHTML = "";
+    const gaps = Array.isArray(data?.gaps) ? data.gaps : [];
+    if (!gaps.length) {
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = "No critical gaps";
+      elements.skillGaps.appendChild(tag);
+    } else {
+      for (const gap of gaps.slice(0, 8)) {
+        const tag = document.createElement("span");
+        tag.className = "tag";
+        tag.textContent = gap;
+        elements.skillGaps.appendChild(tag);
+      }
+    }
 
-    elements.insightText.textContent = insightContent;
+    const insights = Array.isArray(data?.insights)
+      ? data.insights.join("\n\n")
+      : (data?.insights || "No insight yet.");
+    elements.insightText.textContent = insights;
     elements.btnDashboard.href = `${dashboardUrl}/dashboard`;
   }
 
   function renderHistory(historyList, history) {
     historyList.innerHTML = "";
-
-    if (!history || history.length === 0) {
+    if (!history || !history.length) {
       historyList.innerHTML = EMPTY_HISTORY_MARKUP;
       return;
     }
 
-    history.forEach((item) => {
-      const score = item.matchScore || 0;
-      const scoreClass = score >= 75 ? "high" : score >= 50 ? "mid" : "low";
-
-      const el = document.createElement("div");
-      el.className = "history-item";
-      el.innerHTML = `
-        <div class="history-item-left">
+    for (const item of history) {
+      const row = document.createElement("div");
+      row.className = "history-item";
+      const date = item?.created_at ? new Date(item.created_at).toLocaleDateString() : "-";
+      row.innerHTML = `
+        <div>
           <div class="history-item-title">${item.jobTitle || "Unknown"}</div>
-          <div class="history-item-meta">${item.portal || ""} • ${new Date(item.created_at).toLocaleDateString()}</div>
+          <div class="history-item-meta">${item.portal || "Unknown"} • ${date}</div>
         </div>
-        <div class="history-score ${scoreClass}">${score}%</div>
+        <div class="history-score">${Number(item.matchScore || 0)}%</div>
       `;
-      historyList.appendChild(el);
-    });
+      historyList.appendChild(row);
+    }
   }
 
-  function notify(type, message, title = "Notice", durationMs = 5000) {
-    const stack = document.getElementById("notice-stack");
-    if (!stack) return;
-
-    const item = document.createElement("div");
-    item.className = `notice ${type || "warn"}`;
-    item.innerHTML = `
-      <div>
-        <div class="notice-title">${title}</div>
-        <div class="notice-msg">${message}</div>
-      </div>
-      <button class="notice-close" aria-label="Close notification">×</button>
-    `;
-
-    const close = () => {
-      if (item.parentElement) item.parentElement.removeChild(item);
-    };
-
-    item.querySelector(".notice-close")?.addEventListener("click", close);
-    stack.appendChild(item);
-
-    if (durationMs > 0) {
-      setTimeout(close, durationMs);
-    }
+  function notify(type, message) {
+    console.log(`[FYJOB:${type}]`, message);
   }
 
   return {
