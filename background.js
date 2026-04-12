@@ -226,6 +226,17 @@ async function openSidePanelForTab(tabId) {
     // Firefox sidebar not available
   }
 
+  // Firefox Android / tablet fallback: open extension UI in a dedicated tab.
+  try {
+    await chrome.tabs.create({
+      url: chrome.runtime.getURL("sidepanel.html"),
+      active: true,
+    });
+    return true;
+  } catch {
+    // ignore
+  }
+
   return false;
 }
 
@@ -345,21 +356,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
 
+      const pendingPayload = {
+        jobData: message.jobData || null,
+        source: message.source || "unknown",
+        sourceUrl: message.sourceUrl || sender?.tab?.url || "",
+        requestedAt: Date.now(),
+      };
+
       await chrome.storage.local.set({
-        fyjob_pending_scan_job: message.jobData || null,
+        fyjob_pending_scan_job: pendingPayload,
       });
 
-      await openSidePanelForTab(tabId);
-      sendResponse({ success: true });
+      const opened = await openSidePanelForTab(tabId);
+      sendResponse({ success: opened });
     })();
     return true;
   }
 
   if (message.type === "CONSUME_PENDING_SCAN") {
     chrome.storage.local.get(["fyjob_pending_scan_job"], (data) => {
-      const jobData = data?.fyjob_pending_scan_job || null;
+      const payload = data?.fyjob_pending_scan_job || null;
       chrome.storage.local.remove(["fyjob_pending_scan_job"], () => {
-        sendResponse({ success: true, jobData });
+        sendResponse({ success: true, payload });
       });
     });
     return true;

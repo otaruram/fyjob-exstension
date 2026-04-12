@@ -104,6 +104,21 @@ function extractJobFromDom() {
   };
 }
 
+function showFabToast(message, type = "warn") {
+  const existing = document.getElementById("fyjob-fab-toast");
+  if (existing) existing.remove();
+
+  const toast = document.createElement("div");
+  toast.id = "fyjob-fab-toast";
+  toast.textContent = message;
+  toast.dataset.type = type;
+  document.documentElement.appendChild(toast);
+
+  setTimeout(() => {
+    toast.remove();
+  }, 2600);
+}
+
 function mountFloatingButton() {
   if (!isLikelyJobPage()) return;
   if (document.getElementById("fyjob-fab")) return;
@@ -144,10 +159,38 @@ function mountFloatingButton() {
       height: 28px;
       object-fit: contain;
       pointer-events: none;
+      transition: transform 0.18s ease;
     }
     #fyjob-fab[data-loading="1"] {
-      opacity: 0.8;
+      opacity: 0.92;
       cursor: wait;
+      box-shadow: 0 10px 20px rgba(31, 99, 255, 0.22);
+    }
+    #fyjob-fab[data-loading="1"] img {
+      animation: fyjob-fab-spin 0.9s linear infinite;
+    }
+    @keyframes fyjob-fab-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    #fyjob-fab-toast {
+      position: fixed;
+      right: 16px;
+      bottom: 86px;
+      z-index: 2147483647;
+      max-width: 280px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-size: 12px;
+      line-height: 1.35;
+      color: #0f172a;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+    }
+    #fyjob-fab-toast[data-type="error"] {
+      border-color: #fecaca;
+      color: #b91c1c;
     }
     @media (max-width: 640px) {
       #fyjob-fab {
@@ -160,6 +203,11 @@ function mountFloatingButton() {
         width: 24px;
         height: 24px;
       }
+      #fyjob-fab-toast {
+        right: 12px;
+        bottom: 74px;
+        max-width: calc(100vw - 24px);
+      }
     }
   `;
 
@@ -170,17 +218,31 @@ function mountFloatingButton() {
     if (button.dataset.loading === "1") return;
     button.dataset.loading = "1";
 
+    // Failsafe to avoid stuck loading state if callback never returns
+    const resetTimer = setTimeout(() => {
+      button.dataset.loading = "0";
+    }, 8000);
+
     const result = extractJobFromDom();
     if (!result.success) {
+      clearTimeout(resetTimer);
       button.dataset.loading = "0";
+      showFabToast(result.error || "Gagal baca detail job. Coba scroll halaman lalu klik lagi.", "error");
       return;
     }
 
     chrome.runtime.sendMessage({
       type: "OPEN_PANEL_AND_SCAN",
       jobData: result.jobData,
-    }, () => {
+      source: "fab",
+      sourceUrl: window.location.href,
+    }, (response) => {
+      clearTimeout(resetTimer);
       button.dataset.loading = "0";
+
+      if (chrome.runtime.lastError || !response?.success) {
+        showFabToast("Gagal membuka panel FYJOB. Coba klik lagi.", "error");
+      }
     });
   });
 }

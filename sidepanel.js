@@ -32,6 +32,7 @@ const cvRequired = $("#cv-required");
 let currentJobData = null;
 let isBooting = false;
 let hasUploadedCV = false;
+let pendingFabIntent = null;
 
 function setStatus(type, text) {
   ui.setStatus(statusDot, statusText, type, text);
@@ -72,6 +73,10 @@ function showAuth() {
   authScreen.classList.remove("hidden");
   mainScreen.classList.add("hidden");
   setStatus("error", "Belum login. Buka dashboard untuk login.");
+}
+
+function openDashboard(path = "/auth") {
+  chrome.tabs.create({ url: `${DASHBOARD_URL}${path}` });
 }
 
 function showMain() {
@@ -139,17 +144,19 @@ async function consumePendingScan() {
     chrome.runtime.sendMessage({ type: "CONSUME_PENDING_SCAN" }, (res) => resolve(res || null));
   });
 
-  if (payload?.success && payload?.jobData) {
-    currentJobData = payload.jobData;
+  const pending = payload?.success ? payload?.payload : null;
+  if (!pending) return;
+
+  pendingFabIntent = pending?.source === "fab" ? pending : null;
+
+  if (pending?.jobData) {
+    currentJobData = pending.jobData;
     ui.renderJobCard(
       { jobCard, jobTitle, jobCompany, jobPortal, jobDescPreview },
       currentJobData
     );
     setStatus("active", "Job loaded from floating button.");
     applyCvGate();
-    if (hasUploadedCV) {
-      await handleScan();
-    }
   }
 }
 
@@ -197,6 +204,7 @@ async function boot() {
   isBooting = true;
 
   await hydrateDashboardUrl();
+  await consumePendingScan();
 
   let token = await getAuthToken();
   if (!token) {
@@ -207,6 +215,10 @@ async function boot() {
   }
 
   if (!token) {
+    if (pendingFabIntent) {
+      setStatus("error", "Belum login. Membuka halaman login FYJOB...");
+      openDashboard("/auth");
+    }
     showAuth();
     isBooting = false;
     return;
@@ -216,7 +228,22 @@ async function boot() {
 
   try {
     await loadCredits();
-    await Promise.allSettled([loadHistory(), detectJob(), consumePendingScan()]);
+
+    if (pendingFabIntent && !hasUploadedCV) {
+      setStatus("error", "CV belum diupload. Membuka dashboard CV...");
+      openDashboard("/dashboard/cv");
+    }
+
+    if (!currentJobData) {
+      await detectJob();
+    }
+
+    if (pendingFabIntent && currentJobData && hasUploadedCV) {
+      await handleScan();
+      pendingFabIntent = null;
+    }
+
+    await loadHistory();
   } catch (e) {
     if (e?.message === "NOT_AUTHENTICATED") {
       showAuth();
