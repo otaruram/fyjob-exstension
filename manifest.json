@@ -8,7 +8,8 @@
     "tabs",
     "storage",
     "scripting",
-    "sidePanel"
+    "sidePanel",
+    "windows"
   ],
   "host_permissions": [
     "https://*.linkedin.com/*",
@@ -67,7 +68,7 @@
     "default_icon": "icons/icon16.png"
   },
   "background": {
-    "scripts": ["background.js"],
+    "service_worker": "background.js",
     "type": "module"
   },
   "content_scripts": [

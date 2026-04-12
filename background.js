@@ -222,6 +222,20 @@ async function openSidePanelForTab(tabId) {
     // Firefox sidebar not available
   }
 
+  // Final fallback for Chromium variants: open a small popup window.
+  try {
+    await chrome.windows.create({
+      url: chrome.runtime.getURL("sidepanel.html"),
+      type: "popup",
+      width: 420,
+      height: 760,
+      focused: true,
+    });
+    return true;
+  } catch {
+    // ignore
+  }
+
   return false;
 }
 
