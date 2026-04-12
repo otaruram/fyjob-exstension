@@ -297,160 +297,178 @@ chrome.runtime.onInstalled?.addListener(() => {
   syncAuthFromDashboardTab();
 });
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === "SAVE_AUTH_TOKEN") {
-    const expiresAt = message.expiresAt || getJwtExpiration(message.token);
-    chrome.storage.local.set({
-      fyjob_token: message.token,
-      fyjob_refresh_token: message.refreshToken || "",
-      fyjob_expires_at: expiresAt || null,
-      fyjob_user_email: message.email || "",
-    }, () => sendResponse({ success: true }));
-    return true;
-  }
+function clearStoredAuth(sendResponse) {
+  chrome.storage.local.remove(["fyjob_token", "fyjob_refresh_token", "fyjob_expires_at", "fyjob_user_email"], () => {
+    sendResponse({ success: true });
+  });
+}
 
-  if (message.type === "SYNC_LOGOUT") {
-    chrome.storage.local.remove(["fyjob_token", "fyjob_refresh_token", "fyjob_expires_at", "fyjob_user_email"], () => {
-      sendResponse({ success: true });
-    });
-    return true;
-  }
+function handleSaveAuthToken(message, _sender, sendResponse) {
+  const expiresAt = message.expiresAt || getJwtExpiration(message.token);
+  chrome.storage.local.set({
+    fyjob_token: message.token,
+    fyjob_refresh_token: message.refreshToken || "",
+    fyjob_expires_at: expiresAt || null,
+    fyjob_user_email: message.email || "",
+  }, () => sendResponse({ success: true }));
+  return true;
+}
 
-  if (message.type === "GET_AUTH_TOKEN") {
-    (async () => {
-      const data = await chrome.storage.local.get(["fyjob_token", "fyjob_refresh_token", "fyjob_expires_at", "fyjob_user_email"]);
-      const token = data?.fyjob_token || null;
-      const shouldRefresh = token
-        ? isTokenExpiringSoon(token, data?.fyjob_expires_at)
-        : Boolean(data?.fyjob_refresh_token);
+function handleSyncLogout(_message, _sender, sendResponse) {
+  clearStoredAuth(sendResponse);
+  return true;
+}
 
-      if (shouldRefresh) {
-        const refreshed = await refreshAuthTokenFromStorage();
-        if (refreshed.success) {
-          sendResponse({ token: refreshed.token, email: refreshed.email || "" });
-          return;
-        }
+function handleGetAuthToken(_message, _sender, sendResponse) {
+  (async () => {
+    const data = await chrome.storage.local.get(["fyjob_token", "fyjob_refresh_token", "fyjob_expires_at", "fyjob_user_email"]);
+    const token = data?.fyjob_token || null;
+    const shouldRefresh = token
+      ? isTokenExpiringSoon(token, data?.fyjob_expires_at)
+      : Boolean(data?.fyjob_refresh_token);
+
+    if (shouldRefresh) {
+      const refreshed = await refreshAuthTokenFromStorage();
+      if (refreshed.success) {
+        sendResponse({ token: refreshed.token, email: refreshed.email || "" });
+        return;
       }
+    }
 
-      sendResponse({ token, email: data?.fyjob_user_email || "" });
-    })();
-    return true;
-  }
+    sendResponse({ token, email: data?.fyjob_user_email || "" });
+  })();
+  return true;
+}
 
-  if (message.type === "REFRESH_AUTH_TOKEN") {
-    refreshAuthTokenFromStorage().then(sendResponse);
-    return true;
-  }
+function handleRefreshAuthToken(_message, _sender, sendResponse) {
+  refreshAuthTokenFromStorage().then(sendResponse);
+  return true;
+}
 
-  if (message.type === "SYNC_AUTH_NOW") {
-    syncAuthFromDashboardTab().then(sendResponse);
-    return true;
-  }
+function handleSyncAuthNow(_message, _sender, sendResponse) {
+  syncAuthFromDashboardTab().then(sendResponse);
+  return true;
+}
 
-  if (message.type === "LOGOUT") {
-    chrome.storage.local.remove(["fyjob_token", "fyjob_refresh_token", "fyjob_expires_at", "fyjob_user_email"], () => {
-      sendResponse({ success: true });
+function handleLogout(_message, _sender, sendResponse) {
+  clearStoredAuth(sendResponse);
+  forceWebLogout();
+  return true;
+}
+
+function handleOpenPanelAndScan(message, sender, sendResponse) {
+  (async () => {
+    const tabId = sender?.tab?.id;
+    if (!tabId) {
+      sendResponse({ success: false, error: "TAB_NOT_FOUND" });
+      return;
+    }
+
+    const pendingPayload = {
+      jobData: message.jobData || null,
+      source: message.source || "unknown",
+      sourceUrl: message.sourceUrl || sender?.tab?.url || "",
+      requestedAt: Date.now(),
+    };
+
+    await chrome.storage.local.set({
+      fyjob_pending_scan_job: pendingPayload,
     });
-    forceWebLogout();
-    return true;
-  }
 
-  if (message.type === "OPEN_PANEL_AND_SCAN") {
-    (async () => {
-      const tabId = sender?.tab?.id;
-      if (!tabId) {
-        sendResponse({ success: false, error: "TAB_NOT_FOUND" });
+    const opened = await openSidePanelForTab(tabId);
+    sendResponse({ success: opened });
+  })();
+  return true;
+}
+
+function handleConsumePendingScan(_message, _sender, sendResponse) {
+  chrome.storage.local.get(["fyjob_pending_scan_job"], (data) => {
+    const payload = data?.fyjob_pending_scan_job || null;
+    chrome.storage.local.remove(["fyjob_pending_scan_job"], () => {
+      sendResponse({ success: true, payload });
+    });
+  });
+  return true;
+}
+
+function handleExtractJob(_message, _sender, sendResponse) {
+  (async () => {
+    try {
+      const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      const activeTab = tabs?.[0];
+      if (!activeTab?.id || !isJobPortalUrl(activeTab.url || "")) {
+        sendResponse({ success: false, error: "Buka halaman job portal dulu." });
         return;
       }
 
-      const pendingPayload = {
-        jobData: message.jobData || null,
-        source: message.source || "unknown",
-        sourceUrl: message.sourceUrl || sender?.tab?.url || "",
-        requestedAt: Date.now(),
-      };
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: activeTab.id },
+        func: () => {
+          const text = (el) => (el?.textContent || "").trim();
+          const bodyText = (el) => (el?.innerText || "").trim();
+          const url = window.location.href;
+          let portal = "Unknown";
 
-      await chrome.storage.local.set({
-        fyjob_pending_scan_job: pendingPayload,
+          if (url.includes("linkedin.com")) portal = "LinkedIn";
+          else if (url.includes("indeed.com")) portal = "Indeed";
+          else if (url.includes("jobstreet")) portal = "Jobstreet";
+
+          const jobTitle = text(
+            document.querySelector("h1") ||
+            document.querySelector("[data-automation='job-detail-title']") ||
+            document.querySelector(".jobs-unified-top-card__job-title")
+          );
+          const company = text(
+            document.querySelector("[data-automation='advertiser-name']") ||
+            document.querySelector(".jobs-unified-top-card__company-name") ||
+            document.querySelector("[data-testid='inlineHeader-companyName']")
+          );
+          const jobDescription = bodyText(
+            document.querySelector("#jobDescriptionText") ||
+            document.querySelector("[data-automation='jobAdDetails']") ||
+            document.querySelector(".jobs-description__content") ||
+            document.querySelector("main")
+          );
+
+          if (!jobDescription || jobDescription.length < 80) {
+            return { success: false, error: "Deskripsi job belum kebaca. Scroll halaman lalu coba lagi." };
+          }
+
+          return {
+            success: true,
+            jobData: {
+              jobTitle: jobTitle || "Unknown Position",
+              company: company || "Unknown Company",
+              portal,
+              url,
+              jobDescription,
+            },
+          };
+        },
       });
 
-      const opened = await openSidePanelForTab(tabId);
-      sendResponse({ success: opened });
-    })();
-    return true;
-  }
+      sendResponse(results?.[0]?.result || { success: false, error: "Gagal extract job" });
+    } catch (e) {
+      sendResponse({ success: false, error: e?.message || "Gagal extract job" });
+    }
+  })();
+  return true;
+}
 
-  if (message.type === "CONSUME_PENDING_SCAN") {
-    chrome.storage.local.get(["fyjob_pending_scan_job"], (data) => {
-      const payload = data?.fyjob_pending_scan_job || null;
-      chrome.storage.local.remove(["fyjob_pending_scan_job"], () => {
-        sendResponse({ success: true, payload });
-      });
-    });
-    return true;
-  }
+const MESSAGE_HANDLERS = {
+  SAVE_AUTH_TOKEN: handleSaveAuthToken,
+  SYNC_LOGOUT: handleSyncLogout,
+  GET_AUTH_TOKEN: handleGetAuthToken,
+  REFRESH_AUTH_TOKEN: handleRefreshAuthToken,
+  SYNC_AUTH_NOW: handleSyncAuthNow,
+  LOGOUT: handleLogout,
+  OPEN_PANEL_AND_SCAN: handleOpenPanelAndScan,
+  CONSUME_PENDING_SCAN: handleConsumePendingScan,
+  EXTRACT_JOB: handleExtractJob,
+};
 
-  if (message.type === "EXTRACT_JOB") {
-    (async () => {
-      try {
-        const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-        const activeTab = tabs?.[0];
-        if (!activeTab?.id || !isJobPortalUrl(activeTab.url || "")) {
-          sendResponse({ success: false, error: "Buka halaman job portal dulu." });
-          return;
-        }
-
-        const results = await chrome.scripting.executeScript({
-          target: { tabId: activeTab.id },
-          func: () => {
-            const text = (el) => (el?.textContent || "").trim();
-            const bodyText = (el) => (el?.innerText || "").trim();
-            const url = window.location.href;
-            let portal = "Unknown";
-
-            if (url.includes("linkedin.com")) portal = "LinkedIn";
-            else if (url.includes("indeed.com")) portal = "Indeed";
-            else if (url.includes("jobstreet")) portal = "Jobstreet";
-
-            const jobTitle = text(
-              document.querySelector("h1") ||
-              document.querySelector("[data-automation='job-detail-title']") ||
-              document.querySelector(".jobs-unified-top-card__job-title")
-            );
-            const company = text(
-              document.querySelector("[data-automation='advertiser-name']") ||
-              document.querySelector(".jobs-unified-top-card__company-name") ||
-              document.querySelector("[data-testid='inlineHeader-companyName']")
-            );
-            const jobDescription = bodyText(
-              document.querySelector("#jobDescriptionText") ||
-              document.querySelector("[data-automation='jobAdDetails']") ||
-              document.querySelector(".jobs-description__content") ||
-              document.querySelector("main")
-            );
-
-            if (!jobDescription || jobDescription.length < 80) {
-              return { success: false, error: "Deskripsi job belum kebaca. Scroll halaman lalu coba lagi." };
-            }
-
-            return {
-              success: true,
-              jobData: {
-                jobTitle: jobTitle || "Unknown Position",
-                company: company || "Unknown Company",
-                portal,
-                url,
-                jobDescription,
-              },
-            };
-          },
-        });
-
-        sendResponse(results?.[0]?.result || { success: false, error: "Gagal extract job" });
-      } catch (e) {
-        sendResponse({ success: false, error: e?.message || "Gagal extract job" });
-      }
-    })();
-    return true;
-  }
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  const handler = MESSAGE_HANDLERS[message?.type];
+  if (!handler) return false;
+  return handler(message, sender, sendResponse);
 });
