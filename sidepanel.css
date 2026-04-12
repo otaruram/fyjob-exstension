@@ -146,10 +146,46 @@ body {
   border-color: var(--primary);
   background: var(--primary);
   color: #fff;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background 0.15s, box-shadow 0.15s, opacity 0.15s;
+  box-shadow: 0 4px 14px rgba(31, 99, 255, 0.25);
 }
 
 .btn-primary:hover {
-  filter: brightness(0.96);
+  background: #1755e0;
+  border-color: #1755e0;
+  box-shadow: 0 6px 18px rgba(31, 99, 255, 0.32);
+}
+
+.btn-primary:active {
+  box-shadow: 0 2px 8px rgba(31, 99, 255, 0.18);
+  opacity: 0.92;
+}
+
+.btn-primary[data-loading="1"] {
+  opacity: 0.82;
+  cursor: wait;
+  pointer-events: none;
+  box-shadow: none;
+}
+
+.btn-scan-spinner {
+  width: 15px;
+  height: 15px;
+  border: 2.5px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: spin-ring 0.75s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin-ring {
+  to { transform: rotate(360deg); }
 }
 
 .btn.danger {

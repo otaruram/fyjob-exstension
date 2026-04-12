@@ -17,7 +17,8 @@ const jobPortal = $("#job-portal");
 const jobDescPreview = $("#job-desc-preview");
 
 const btnScan = $("#btn-scan");
-const scanLoading = $("#scan-loading");
+const btnScanSpinner = $(".btn-scan-spinner");
+const btnScanLabel = $("#btn-scan-label");
 const resultsSection = $("#results-section");
 const scoreNumber = $("#score-number");
 const scoreLabel = $("#score-label");
@@ -178,7 +179,9 @@ async function handleScan() {
   }
 
   btnScan.disabled = true;
-  scanLoading.classList.remove("hidden");
+  btnScan.dataset.loading = "1";
+  btnScanSpinner.classList.remove("hidden");
+  btnScanLabel.textContent = "Analyzing...";
   setStatus("active", "Analyzing with FYJOB...");
 
   try {
@@ -194,7 +197,9 @@ async function handleScan() {
   } catch (e) {
     setStatus("error", e?.message || "Analysis failed.");
   } finally {
-    scanLoading.classList.add("hidden");
+    btnScanSpinner.classList.add("hidden");
+    btnScanLabel.textContent = "Quick Match Analysis";
+    btnScan.dataset.loading = "0";
     btnScan.disabled = false;
   }
 }
