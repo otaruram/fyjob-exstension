@@ -16,6 +16,7 @@
 body {
   margin: 0;
   padding: 14px;
+  padding-bottom: calc(14px + env(safe-area-inset-bottom));
   background: var(--bg);
   color: var(--text);
   font-family: "Segoe UI", "Helvetica Neue", sans-serif;
@@ -243,8 +244,32 @@ body {
 @media (max-width: 420px) {
   body {
     padding: 10px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
   }
   .row {
     grid-template-columns: 1fr;
+  }
+
+  .btn {
+    min-height: 42px;
+    font-size: 15px;
+  }
+
+  .topbar {
+    align-items: flex-start;
+  }
+
+  .credit-pill {
+    margin-top: 2px;
+  }
+}
+
+@media (max-width: 768px) {
+  .card {
+    padding: 14px;
+  }
+
+  .history-item {
+    padding: 10px;
   }
 }

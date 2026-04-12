@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "FYJOB Scanner",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Quick job match analysis with synced FYJOB auth.",
   "permissions": [
     "activeTab",
@@ -60,6 +60,9 @@
     "gecko": {
       "id": "fypodku@otaruram.dev",
       "strict_min_version": "140.0"
+    },
+    "gecko_android": {
+      "strict_min_version": "128.0"
     }
   }
 }
