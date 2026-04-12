@@ -72,6 +72,7 @@ let conversationHistory = [];
 let lastDetectedUrl = "";
 let hasUploadedCV = false;
 let cvSyncFailed = false;
+let cvSyncError = "";
 let authAutoSyncTimer = null;
 
 const jobCardElements = {
@@ -110,7 +111,8 @@ function applyCvGate() {
   if (cvSyncFailed) {
     cvRequired?.classList.remove("hidden");
     btnScan.disabled = true;
-    setStatus("error", "Sync gagal — klik Refresh Status atau coba Logout lalu login ulang");
+    const detail = cvSyncError ? ` (${cvSyncError})` : "";
+    setStatus("error", `Sync gagal${detail} — klik Refresh Status atau coba Logout lalu login ulang`);
     return;
   }
 
@@ -145,10 +147,20 @@ async function init() {
   let token = await getAuthToken();
 
   if (!token) {
+    // Try dashboard tab sync
     await new Promise((resolve) => {
       chrome.runtime.sendMessage({ type: "SYNC_AUTH_NOW" }, () => resolve());
     });
     token = await getAuthToken();
+  }
+
+  if (!token) {
+    // Production: dashboard tab may need a moment to finish loading.
+    // Poll up to 5s before giving up and showing auth screen.
+    for (let i = 0; i < 5 && !token; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      token = await getAuthToken();
+    }
   }
 
   if (token) {
@@ -261,48 +273,41 @@ $("#btn-refresh-cv-status")?.addEventListener("click", async () => {
 });
 
 // ─── Credits ───
+function applyStatsToUI(stats) {
+  hasUploadedCV = Boolean(stats.cv_uploaded);
+  const pill = $("#credit-pill");
+  ui.applyCreditPill(creditCount, pill, stats);
+  const emailLabel = $("#user-email-label");
+  if (emailLabel && stats.email) {
+    emailLabel.textContent = stats.email;
+    emailLabel.title = stats.email;
+  }
+}
+
 async function loadCredits() {
   cvSyncFailed = false;
-  try {
-    const stats = await getUserStats();
-    hasUploadedCV = Boolean(stats.cv_uploaded);
-    const pill = $("#credit-pill");
-    ui.applyCreditPill(creditCount, pill, stats);
-
-    // Show backend-verified email
-    const emailLabel = $("#user-email-label");
-    if (emailLabel && stats.email) {
-      emailLabel.textContent = stats.email;
-      emailLabel.title = stats.email;
-    }
-
-    applyCvGate();
-  } catch (e) {
-    if (e.message === "NOT_AUTHENTICATED") {
-      showAuth();
-    } else {
-      // Retry once after a short delay
-      try {
-        await new Promise((r) => setTimeout(r, 1500));
-        const stats = await getUserStats();
-        hasUploadedCV = Boolean(stats.cv_uploaded);
-        const pill = $("#credit-pill");
-        ui.applyCreditPill(creditCount, pill, stats);
-        const emailLabel = $("#user-email-label");
-        if (emailLabel && stats.email) {
-          emailLabel.textContent = stats.email;
-          emailLabel.title = stats.email;
-        }
-        applyCvGate();
-      } catch (retryErr) {
-        if (retryErr.message === "NOT_AUTHENTICATED") {
-          showAuth();
-        } else {
-          creditCount.textContent = "?";
-          cvSyncFailed = true;
-          applyCvGate();
-        }
+  cvSyncError = "";
+  const delays = [2000, 4000]; // retry delays for cold starts / transient failures
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, delays[attempt - 1]));
       }
+      const stats = await getUserStats();
+      applyStatsToUI(stats);
+      applyCvGate();
+      return;
+    } catch (e) {
+      if (e.message === "NOT_AUTHENTICATED") {
+        showAuth();
+        return;
+      }
+      if (attempt < delays.length) continue; // will retry
+      // All retries exhausted
+      creditCount.textContent = "?";
+      cvSyncFailed = true;
+      cvSyncError = e.message || "";
+      applyCvGate();
     }
   }
 }
