@@ -226,18 +226,17 @@ async function openSidePanelForTab(tabId) {
     // Firefox sidebar not available
   }
 
-  // Firefox Android / tablet fallback: open extension UI in a dedicated tab.
-  try {
-    await chrome.tabs.create({
-      url: chrome.runtime.getURL("sidepanel.html"),
-      active: true,
-    });
-    return true;
-  } catch {
-    // ignore
-  }
-
   return false;
+}
+
+async function configureActionClickBehavior() {
+  try {
+    if (chrome.sidePanel?.setPanelBehavior) {
+      await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+    }
+  } catch {
+    // Keep fallback action handler below for browsers without setPanelBehavior support.
+  }
 }
 
 async function forceWebLogout() {
@@ -255,6 +254,14 @@ async function forceWebLogout() {
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab?.id) return;
   await openSidePanelForTab(tab.id);
+});
+
+chrome.runtime.onInstalled.addListener(() => {
+  configureActionClickBehavior();
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  configureActionClickBehavior();
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
