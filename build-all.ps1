@@ -1,4 +1,4 @@
-param([string]$Version = "1.1.7")
+param([string]$Version = "1.1.8")
 
 $extDir  = Split-Path $MyInvocation.MyCommand.Path
 $buildDir = "$extDir\builds"

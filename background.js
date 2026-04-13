@@ -1,5 +1,3 @@
-const SUPABASE_URL = "https://iplciyfnwwiyjtvrvqza.supabase.co";
-const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_C5rgYqsle-9YyDW1YeG67A_O_x46k5y";
 const EXT_AUTH_BRIDGE_KEY = "fyjob_auth_bridge_v1";
 
 const DASHBOARD_MATCHERS = [
@@ -90,12 +88,22 @@ async function refreshAuthTokenFromStorage() {
   const refreshToken = data?.fyjob_refresh_token;
   if (!refreshToken) return { success: false, error: "NO_REFRESH_TOKEN" };
 
+  const config = await chrome.storage.local.get([
+    "fyjob_supabase_url",
+    "fyjob_supabase_publishable_key",
+  ]);
+  const supabaseUrl = String(config?.fyjob_supabase_url || "").trim().replace(/\/$/, "");
+  const supabasePublishableKey = String(config?.fyjob_supabase_publishable_key || "").trim();
+  if (!supabaseUrl || !supabasePublishableKey) {
+    return { success: false, error: "SUPABASE_CONFIG_MISSING" };
+  }
+
   try {
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+    const res = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "apikey": SUPABASE_PUBLISHABLE_KEY,
+        "apikey": supabasePublishableKey,
       },
       body: JSON.stringify({ refresh_token: refreshToken }),
     });
